@@ -130,7 +130,7 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
       const strategy = data.strategy || "merge";
       const importData = data.exportData;
 
-      const supportedVersions = new Set(["0.3.0", "0.4.0", "0.5.0"]);
+      const supportedVersions = new Set(["0.3.0", "0.4.0", "0.5.0", "0.6.0"]);
       if (!supportedVersions.has(importData.version)) {
         return {
           success: false,
@@ -261,6 +261,18 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
         }
         for (const f of await kv.list<Facet>(KV.facets).catch(() => [])) {
           await kv.delete(KV.facets, f.id);
+        }
+        for (const n of await kv.list<{ id: string }>(KV.graphNodes).catch(() => [])) {
+          await kv.delete(KV.graphNodes, n.id);
+        }
+        for (const e of await kv.list<{ id: string }>(KV.graphEdges).catch(() => [])) {
+          await kv.delete(KV.graphEdges, e.id);
+        }
+        for (const s of await kv.list<{ id: string }>(KV.semantic).catch(() => [])) {
+          await kv.delete(KV.semantic, s.id);
+        }
+        for (const p of await kv.list<{ id: string }>(KV.procedural).catch(() => [])) {
+          await kv.delete(KV.procedural, p.id);
         }
       }
 
