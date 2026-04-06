@@ -742,6 +742,8 @@
     <button data-tab="timeline">Timeline</button>
     <button data-tab="sessions">Sessions</button>
     <button data-tab="lessons">Lessons</button>
+    <button data-tab="actions">Actions</button>
+    <button data-tab="crystals">Crystals</button>
     <button data-tab="audit">Audit</button>
     <button data-tab="activity">Activity</button>
     <button data-tab="profile">Profile</button>
@@ -751,6 +753,8 @@
   <div id="view-graph" class="view"></div>
   <div id="view-memories" class="view"></div>
   <div id="view-lessons" class="view"></div>
+  <div id="view-actions" class="view"></div>
+  <div id="view-crystals" class="view"></div>
   <div id="view-timeline" class="view"></div>
   <div id="view-sessions" class="view"></div>
   <div id="view-audit" class="view"></div>
@@ -813,6 +817,8 @@
       audit: { loaded: false, entries: [], opFilter: '' },
       activity: { loaded: false, observations: [], sessions: [], typeFilter: '' },
       lessons: { loaded: false, items: [], search: '' },
+      actions: { loaded: false, items: [], frontier: [], statusFilter: '', search: '' },
+      crystals: { loaded: false, items: [], search: '' },
       profile: { loaded: false, projects: [], selectedProject: '', data: null },
       ws: null
     };
@@ -895,6 +901,8 @@
         case 'timeline': if (!state.timeline.loaded) await loadTimeline(); break;
         case 'sessions': if (!state.sessions.loaded) await loadSessions(); break;
         case 'lessons': if (!state.lessons.loaded) await loadLessons(); break;
+        case 'actions': if (!state.actions.loaded) await loadActions(); break;
+        case 'crystals': if (!state.crystals.loaded) await loadCrystals(); break;
         case 'audit': if (!state.audit.loaded) await loadAudit(); break;
         case 'activity': if (!state.activity.loaded) await loadActivity(); break;
         case 'profile': if (!state.profile.loaded) await loadProfile(); break;
@@ -2264,6 +2272,144 @@
           html += '</tr>';
         });
         html += '</tbody></table>';
+      }
+
+      el.innerHTML = html;
+    }
+
+    async function loadActions() {
+      var el = document.getElementById('view-actions');
+      el.innerHTML = '<div class="loading">Loading actions...</div>';
+      var results = await Promise.all([apiGet('actions'), apiGet('frontier')]);
+      state.actions.items = (results[0] && results[0].actions) || [];
+      state.actions.frontier = (results[1] && results[1].actions) || [];
+      state.actions.loaded = true;
+      renderActions();
+    }
+
+    function renderActions() {
+      var el = document.getElementById('view-actions');
+      var items = state.actions.items;
+      var search = state.actions.search.toLowerCase();
+      var statusFilter = state.actions.statusFilter;
+      var frontierIds = new Set((state.actions.frontier || []).map(function(a) { return a.id; }));
+
+      if (search) {
+        items = items.filter(function(a) {
+          return (a.title + ' ' + (a.description || '') + ' ' + (a.tags || []).join(' ')).toLowerCase().indexOf(search) >= 0;
+        });
+      }
+      if (statusFilter) {
+        items = items.filter(function(a) { return a.status === statusFilter; });
+      }
+
+      var html = '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">';
+      html += '<input class="search-input" type="text" placeholder="Search actions..." value="' + esc(state.actions.search) + '" oninput="state.actions.search=this.value;renderActions()" style="flex:1;min-width:200px" />';
+      html += '<select style="padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--ink);" onchange="state.actions.statusFilter=this.value;renderActions()">';
+      html += '<option value="">All statuses</option>';
+      ['pending','active','done','blocked','cancelled'].forEach(function(s) {
+        html += '<option value="' + s + '"' + (statusFilter === s ? ' selected' : '') + '>' + s + '</option>';
+      });
+      html += '</select>';
+      html += '<span style="font-size:12px;color:var(--ink-faint);align-self:center;">' + items.length + ' actions</span>';
+      html += '</div>';
+
+      if (items.length === 0) {
+        html += '<div class="empty-state"><div class="empty-icon">&#9745;</div><p>No actions yet</p><p style="font-size:12px;color:var(--ink-faint);font-style:italic;">Create actions via memory_action_create MCP tool or POST /agentmemory/actions</p></div>';
+      } else {
+        html += '<table><thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Tags</th><th>Frontier</th><th>Updated</th></tr></thead><tbody>';
+        items = items.slice().sort(function(a, b) { return (b.priority || 0) - (a.priority || 0); });
+        items.forEach(function(a) {
+          var statusClass = a.status === 'done' ? 'badge-green' : a.status === 'active' ? 'badge-blue' : a.status === 'blocked' ? 'badge-red' : a.status === 'cancelled' ? 'badge-red' : 'badge-yellow';
+          var isFrontier = frontierIds.has(a.id);
+          html += '<tr' + (isFrontier ? ' style="background:rgba(45,106,79,0.08);"' : '') + '>';
+          html += '<td style="max-width:350px;"><strong>' + esc(a.title) + '</strong>';
+          if (a.description) html += '<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">' + esc(truncate(a.description, 80)) + '</div>';
+          html += '</td>';
+          html += '<td><span class="badge ' + statusClass + '">' + esc(a.status) + '</span></td>';
+          html += '<td style="text-align:center;font-weight:600;">' + (a.priority || '-') + '</td>';
+          html += '<td style="font-size:11px;color:var(--ink-muted);">' + (a.tags || []).map(esc).join(', ') + '</td>';
+          html += '<td style="text-align:center;">' + (isFrontier ? '&#9889;' : '') + '</td>';
+          html += '<td style="font-size:12px;color:var(--ink-muted);">' + shortTime(a.updatedAt) + '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+      }
+
+      el.innerHTML = html;
+    }
+
+    async function loadCrystals() {
+      var el = document.getElementById('view-crystals');
+      if (state.dashboard.loaded && state.dashboard.crystals.length) {
+        state.crystals.items = state.dashboard.crystals;
+        state.crystals.loaded = true;
+        renderCrystals();
+        return;
+      }
+      el.innerHTML = '<div class="loading">Loading crystals...</div>';
+      var result = await apiGet('crystals');
+      state.crystals.items = (result && result.crystals) || [];
+      state.crystals.loaded = true;
+      renderCrystals();
+    }
+
+    function renderCrystals() {
+      var el = document.getElementById('view-crystals');
+      var items = state.crystals.items;
+      var search = state.crystals.search.toLowerCase();
+
+      if (search) {
+        items = items.filter(function(c) {
+          return ((c.narrative || '') + ' ' + (c.keyOutcomes || []).join(' ') + ' ' + (c.lessons || []).join(' ')).toLowerCase().indexOf(search) >= 0;
+        });
+      }
+
+      var html = '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+      html += '<input class="search-input" type="text" placeholder="Search crystals..." value="' + esc(state.crystals.search) + '" oninput="state.crystals.search=this.value;renderCrystals()" style="flex:1" />';
+      html += '<span style="font-size:12px;color:var(--ink-faint);align-self:center;">' + items.length + ' crystals</span>';
+      html += '</div>';
+
+      if (items.length === 0) {
+        html += '<div class="empty-state"><div class="empty-icon">&#128142;</div><p>No crystals yet</p><p style="font-size:12px;color:var(--ink-faint);font-style:italic;">Crystals are created by compressing completed action chains via memory_crystallize.</p></div>';
+      } else {
+        items.forEach(function(c) {
+          html += '<div class="card" style="margin-bottom:12px;">';
+          html += '<div class="card-title" style="display:flex;justify-content:space-between;">';
+          html += '<span>' + esc(truncate(c.narrative, 100)) + '</span>';
+          html += '<span style="font-size:11px;color:var(--ink-faint);">' + formatTime(c.createdAt) + '</span>';
+          html += '</div>';
+
+          if (c.keyOutcomes && c.keyOutcomes.length > 0) {
+            html += '<div style="margin:8px 0;"><strong style="font-size:11px;color:var(--ink-muted);">KEY OUTCOMES</strong>';
+            c.keyOutcomes.forEach(function(o) {
+              html += '<div style="font-size:12px;padding:2px 0;color:var(--ink);">&#8226; ' + esc(o) + '</div>';
+            });
+            html += '</div>';
+          }
+
+          if (c.lessons && c.lessons.length > 0) {
+            html += '<div style="margin:8px 0;"><strong style="font-size:11px;color:var(--ink-muted);">LESSONS</strong>';
+            c.lessons.forEach(function(l) {
+              html += '<div style="font-size:12px;padding:2px 0;color:var(--ink);">&#128161; ' + esc(l) + '</div>';
+            });
+            html += '</div>';
+          }
+
+          if (c.filesAffected && c.filesAffected.length > 0) {
+            html += '<div style="margin:8px 0;font-size:11px;color:var(--ink-muted);">Files: <span style="font-family:var(--font-mono);">' + c.filesAffected.map(esc).join(', ') + '</span></div>';
+          }
+
+          if (c.sourceActionIds && c.sourceActionIds.length > 0) {
+            html += '<div style="font-size:11px;color:var(--ink-faint);">Source actions: ' + c.sourceActionIds.map(esc).join(', ') + '</div>';
+          }
+
+          if (c.project) {
+            html += '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;">Project: ' + esc(c.project) + '</div>';
+          }
+
+          html += '</div>';
+        });
       }
 
       el.innerHTML = html;
