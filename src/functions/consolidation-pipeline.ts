@@ -49,7 +49,7 @@ export function registerConsolidationPipelineFunction(
 ): void {
   sdk.registerFunction(
     { id: "mem::consolidate-pipeline" },
-    async (data?: { tier?: string; force?: boolean }) => {
+    async (data?: { tier?: string; force?: boolean; project?: string }) => {
       if (!data?.force && !isConsolidationEnabled()) {
         return { success: false, skipped: true, reason: "CONSOLIDATION_ENABLED is not set to true" };
       }
@@ -132,6 +132,20 @@ export function registerConsolidationPipelineFunction(
             skipped: true,
             reason: "fewer than 5 summaries",
           };
+        }
+      }
+
+      if (tier === "all" || tier === "reflect") {
+        try {
+          const reflectResult = await sdk.trigger("mem::reflect", {
+            maxClusters: 10,
+            project: data?.project,
+          });
+          results.reflect = reflectResult;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          ctx.logger.warn("Reflect tier failed", { error: msg });
+          results.reflect = { error: msg };
         }
       }
 

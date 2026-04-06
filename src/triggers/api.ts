@@ -1901,4 +1901,44 @@ export function registerApiTriggers(
     return { status_code: 200, body: result };
   });
   sdk.registerTrigger({ type: "http", function_id: "api::obsidian-export", config: { api_path: "/agentmemory/obsidian/export", http_method: "POST" } });
+
+  sdk.registerFunction({ id: "api::reflect" }, async (req: ApiRequest) => {
+    const denied = checkAuth(req, secret);
+    if (denied) return denied;
+    const body = (req.body as Record<string, unknown>) || {};
+    const result = await sdk.trigger("mem::reflect", {
+      project: typeof body.project === "string" ? body.project : undefined,
+      maxClusters: typeof body.maxClusters === "number" ? body.maxClusters : undefined,
+    });
+    return { status_code: 200, body: result };
+  });
+  sdk.registerTrigger({ type: "http", function_id: "api::reflect", config: { api_path: "/agentmemory/reflect", http_method: "POST" } });
+
+  sdk.registerFunction({ id: "api::insight-list" }, async (req: ApiRequest) => {
+    const denied = checkAuth(req, secret);
+    if (denied) return denied;
+    const params = req.query_params || {};
+    const result = await sdk.trigger("mem::insight-list", {
+      project: params.project,
+      minConfidence: params.minConfidence ? parseFloat(params.minConfidence as string) : undefined,
+      limit: params.limit ? parseInt(params.limit as string, 10) : undefined,
+    });
+    return { status_code: 200, body: result };
+  });
+  sdk.registerTrigger({ type: "http", function_id: "api::insight-list", config: { api_path: "/agentmemory/insights", http_method: "GET" } });
+
+  sdk.registerFunction({ id: "api::insight-search" }, async (req: ApiRequest) => {
+    const denied = checkAuth(req, secret);
+    if (denied) return denied;
+    const body = req.body as Record<string, unknown>;
+    if (!body?.query || typeof body.query !== "string") return { status_code: 400, body: { error: "query is required" } };
+    const result = await sdk.trigger("mem::insight-search", {
+      query: body.query,
+      project: typeof body.project === "string" ? body.project : undefined,
+      minConfidence: typeof body.minConfidence === "number" ? body.minConfidence : undefined,
+      limit: typeof body.limit === "number" ? body.limit : undefined,
+    });
+    return { status_code: 200, body: result };
+  });
+  sdk.registerTrigger({ type: "http", function_id: "api::insight-search", config: { api_path: "/agentmemory/insights/search", http_method: "POST" } });
 }

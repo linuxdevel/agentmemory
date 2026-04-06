@@ -66,6 +66,7 @@ import { registerVerifyFunction } from "./functions/verify.js";
 import { registerCascadeFunction } from "./functions/cascade.js";
 import { registerLessonsFunctions } from "./functions/lessons.js";
 import { registerObsidianExportFunction } from "./functions/obsidian-export.js";
+import { registerReflectFunctions } from "./functions/reflect.js";
 import { registerSlidingWindowFunction } from "./functions/sliding-window.js";
 import { registerQueryExpansionFunction } from "./functions/query-expansion.js";
 import { registerTemporalGraphFunctions } from "./functions/temporal-graph.js";
@@ -194,6 +195,7 @@ async function main() {
   registerVerifyFunction(sdk, kv);
   registerLessonsFunctions(sdk, kv);
   registerObsidianExportFunction(sdk, kv);
+  registerReflectFunctions(sdk, kv, provider);
   registerCascadeFunction(sdk, kv);
 
   registerSlidingWindowFunction(sdk, kv, provider);
@@ -275,7 +277,7 @@ async function main() {
     `[agentmemory] Ready. ${embeddingProvider ? "Triple-stream (BM25+Vector+Graph)" : "BM25+Graph"} search active.`,
   );
   console.log(
-    `[agentmemory] Endpoints: 100 REST + 41 MCP tools + 6 MCP resources + 3 MCP prompts`,
+    `[agentmemory] Endpoints: 103 REST + 43 MCP tools + 6 MCP resources + 3 MCP prompts`,
   );
 
   const viewerPort = config.restPort + 2;
@@ -308,6 +310,15 @@ async function main() {
     }, 86400000);
     lessonDecayTimer.unref();
     console.log(`[agentmemory] Lesson decay sweep: enabled (every 24h)`);
+  }
+
+  if (process.env.INSIGHT_DECAY_ENABLED !== "false") {
+    const insightDecayTimer = setInterval(async () => {
+      try {
+        await sdk.trigger("mem::insight-decay-sweep", {});
+      } catch {}
+    }, 86400000);
+    insightDecayTimer.unref();
   }
 
   if (isConsolidationEnabled()) {

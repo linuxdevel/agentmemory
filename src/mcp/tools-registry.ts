@@ -748,6 +748,40 @@ export const V070_TOOLS: McpToolDef[] = [
   },
 ];
 
+export const V073_TOOLS: McpToolDef[] = [
+  {
+    name: "memory_reflect",
+    description:
+      "Traverse the knowledge graph, group related memories by concept clusters, and synthesize higher-order insights via LLM. Returns new and reinforced insights.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Filter by project" },
+        maxClusters: {
+          type: "number",
+          description: "Max concept clusters to process (default 10, max 20)",
+        },
+      },
+    },
+  },
+  {
+    name: "memory_insight_list",
+    description:
+      "List synthesized insights — higher-order observations derived from patterns across memories, lessons, and crystals.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Filter by project" },
+        minConfidence: {
+          type: "number",
+          description: "Minimum confidence threshold (default 0)",
+        },
+        limit: { type: "number", description: "Max results (default 50)" },
+      },
+    },
+  },
+];
+
 const ESSENTIAL_TOOLS = new Set([
   "memory_save",
   "memory_recall",
@@ -756,10 +790,11 @@ const ESSENTIAL_TOOLS = new Set([
   "memory_sessions",
   "memory_diagnose",
   "memory_lesson_save",
+  "memory_reflect",
 ]);
 
 export function getAllTools(): McpToolDef[] {
-  return [...CORE_TOOLS, ...V040_TOOLS, ...V050_TOOLS, ...V051_TOOLS, ...V061_TOOLS, ...V070_TOOLS];
+  return [...CORE_TOOLS, ...V040_TOOLS, ...V050_TOOLS, ...V051_TOOLS, ...V061_TOOLS, ...V070_TOOLS, ...V073_TOOLS];
 }
 
 export function getVisibleTools(): McpToolDef[] {

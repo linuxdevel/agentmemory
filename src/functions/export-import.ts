@@ -21,6 +21,7 @@ import type {
   Crystal,
   Facet,
   Lesson,
+  Insight,
   ExportPagination,
 } from "../types.js";
 import { KV } from "../state/schema.js";
@@ -82,6 +83,7 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
         crystals,
         facets,
         lessons,
+        insights,
         routines,
         signals,
         checkpoints,
@@ -97,6 +99,7 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
         kv.list<Crystal>(KV.crystals).catch(() => []),
         kv.list<Facet>(KV.facets).catch(() => []),
         kv.list<Lesson>(KV.lessons).catch(() => []),
+        kv.list<Insight>(KV.insights).catch(() => []),
         kv.list<Routine>(KV.routines).catch(() => []),
         kv.list<Signal>(KV.signals).catch(() => []),
         kv.list<Checkpoint>(KV.checkpoints).catch(() => []),
@@ -123,6 +126,7 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
         crystals: crystals.length > 0 ? crystals : undefined,
         facets: facets.length > 0 ? facets : undefined,
         lessons: lessons.length > 0 ? lessons : undefined,
+        insights: insights.length > 0 ? insights : undefined,
         routines: routines.length > 0 ? routines : undefined,
         signals: signals.length > 0 ? signals : undefined,
         checkpoints: checkpoints.length > 0 ? checkpoints : undefined,
@@ -300,6 +304,9 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
         }
         for (const l of await kv.list<Lesson>(KV.lessons).catch(() => [])) {
           await kv.delete(KV.lessons, l.id);
+        }
+        for (const i of await kv.list<Insight>(KV.insights).catch(() => [])) {
+          await kv.delete(KV.insights, i.id);
         }
         for (const n of await kv.list<{ id: string }>(KV.graphNodes).catch(() => [])) {
           await kv.delete(KV.graphNodes, n.id);
@@ -498,6 +505,15 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
             if (existing) { stats.skipped++; continue; }
           }
           await kv.set(KV.lessons, lesson.id, lesson);
+        }
+      }
+      if (importData.insights) {
+        for (const insight of importData.insights) {
+          if (strategy === "skip") {
+            const existing = await kv.get(KV.insights, insight.id).catch(() => null);
+            if (existing) { stats.skipped++; continue; }
+          }
+          await kv.set(KV.insights, insight.id, insight);
         }
       }
 

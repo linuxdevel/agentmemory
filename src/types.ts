@@ -270,6 +270,7 @@ export interface ExportData {
   crystals?: Crystal[];
   facets?: Facet[];
   lessons?: Lesson[];
+  insights?: Insight[];
   pagination?: ExportPagination;
 }
 
@@ -464,7 +465,9 @@ export interface AuditEntry {
     | "lesson_save"
     | "lesson_recall"
     | "lesson_strengthen"
-    | "obsidian_export";
+    | "obsidian_export"
+    | "reflect"
+    | "insight_search";
   userId?: string;
   functionId: string;
   targetIds: string[];
@@ -662,6 +665,26 @@ export interface Lesson {
   reinforcements: number;
   source: "crystal" | "manual" | "consolidation";
   sourceIds: string[];
+  project?: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+  lastReinforcedAt?: string;
+  lastDecayedAt?: string;
+  decayRate: number;
+  deleted?: boolean;
+}
+
+export interface Insight {
+  id: string;
+  title: string;
+  content: string;
+  confidence: number;
+  reinforcements: number;
+  sourceConceptCluster: string[];
+  sourceMemoryIds: string[];
+  sourceLessonIds: string[];
+  sourceCrystalIds: string[];
   project?: string;
   tags: string[];
   createdAt: string;

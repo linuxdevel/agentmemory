@@ -954,6 +954,23 @@ export function registerMcpEndpoints(
             return { status_code: 200, body: { content: [{ type: "text", text: JSON.stringify(lessonRecallResult, null, 2) }] } };
           }
 
+          case "memory_reflect": {
+            const reflectResult = await sdk.trigger("mem::reflect", {
+              project: args.project,
+              maxClusters: args.maxClusters,
+            });
+            return { status_code: 200, body: { content: [{ type: "text", text: JSON.stringify(reflectResult, null, 2) }] } };
+          }
+
+          case "memory_insight_list": {
+            const insightListResult = await sdk.trigger("mem::insight-list", {
+              project: args.project,
+              minConfidence: args.minConfidence,
+              limit: args.limit,
+            });
+            return { status_code: 200, body: { content: [{ type: "text", text: JSON.stringify(insightListResult, null, 2) }] } };
+          }
+
           case "memory_obsidian_export": {
             const exportTypes = typeof args.types === "string" && args.types.trim()
               ? args.types.split(",").map((t: string) => t.trim()).filter(Boolean)
