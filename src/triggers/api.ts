@@ -349,7 +349,7 @@ export function registerApiTriggers(
       if (
         req.body.terms !== undefined &&
         (!Array.isArray(req.body.terms) ||
-          !req.body.terms.every((t: unknown) => typeof t === "string" }))
+          !req.body.terms.every((t: unknown) => typeof t === "string"))
       ) {
         return {
           status_code: 400,
@@ -902,7 +902,7 @@ export function registerApiTriggers(
     ): Promise<Response> => {
       const authErr = checkAuth(req, secret);
       if (authErr) return authErr;
-      if (!req.body?.memoryIds || !Array.isArray(req.body.memoryIds })) {
+      if (!req.body?.memoryIds || !Array.isArray(req.body.memoryIds)) {
         return {
           status_code: 400,
           body: { error: "memoryIds array is required" },
@@ -1489,7 +1489,7 @@ export function registerApiTriggers(
       const since = req.query_params?.["since"] as string;
       if (since) {
         const parsed = new Date(since).getTime();
-        if (Number.isNaN(parsed })) {
+        if (Number.isNaN(parsed)) {
           return { status_code: 400, body: { error: "Invalid 'since' date format" } };
         }
       }
@@ -1857,17 +1857,20 @@ export function registerApiTriggers(
     const body = req.body as Record<string, unknown>;
     if (!body?.content || typeof body.content !== "string") return { status_code: 400, body: { error: "content is required" } };
     const tags = typeof body.tags === "string" ? (body.tags as string).split(",").map((t: string) => t.trim()).filter(Boolean) : Array.isArray(body.tags) ? body.tags : [];
-    const result = await sdk.trigger({ function_id: "mem::lesson-save", payload: {
-      content: body.content,
-      context: body.context || "",
-      confidence: typeof body.confidence === "number" ? body.confidence : undefined,
-      project: typeof body.project === "string" ? body.project : undefined,
-      tags,
-      source: "manual",
-    }) as { action?: string };
+    const result = (await sdk.trigger({
+      function_id: "mem::lesson-save",
+      payload: {
+        content: body.content,
+        context: body.context || "",
+        confidence: typeof body.confidence === "number" ? body.confidence : undefined,
+        project: typeof body.project === "string" ? body.project : undefined,
+        tags,
+        source: "manual",
+      },
+    })) as { action?: string };
     const statusCode = result?.action === "created" ? 201 : 200;
     return { status_code: statusCode, body: result };
-  } });
+  });
   sdk.registerTrigger({ type: "http", function_id: "api::lesson-save", config: { api_path: "/agentmemory/lessons", http_method: "POST" } });
 
   sdk.registerFunction("api::lesson-list",  async (req: ApiRequest) => {

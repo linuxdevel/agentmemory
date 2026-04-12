@@ -145,7 +145,7 @@ export function registerBranchAwareFunction(sdk: ISdk, kv: StateKV): void {
 
       const matching = sessions.filter((s) => {
         if (s.project === projectRoot || s.cwd === projectRoot) return true;
-        if (s.cwd.startsWith(projectRoot + "/" })) return true;
+        if (s.cwd.startsWith(projectRoot + "/")) return true;
         return false;
       });
 
