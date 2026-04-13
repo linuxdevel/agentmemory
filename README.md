@@ -671,12 +671,17 @@ That installer:
 - builds this checkout with `/home/abols/.nvm/versions/node/v22.22.2/bin`
 - deploys the runtime into `/opt/agentmemory`
 - installs `integrations/opencode/plugin.js` to `~/.config/opencode/plugins/agentmemory.js`
+- installs repo-owned OpenCode skills to `~/.config/opencode/skills/agentmemory-{remember,recall,forget,session-history}/`
+- installs `integrations/opencode/instructions-agentmemory-skills.md` to `~/.config/opencode/instructions-agentmemory-skills.md`
 - merges `~/.config/opencode/opencode.json` so it preserves existing settings while ensuring:
 
 ```json
 {
   "plugin": [
     "file:///home/abols/.config/opencode/plugins/agentmemory.js"
+  ],
+  "instructions": [
+    "file:///home/abols/.config/opencode/instructions-agentmemory-skills.md"
   ],
   "mcp": {
     "agentmemory": {

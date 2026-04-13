@@ -62,6 +62,19 @@ This gives OpenCode the same core mechanism Claude uses:
 - automatic recall/context injection via REST hooks
 - MCP remains available for manual/fallback use, not as the primary automatic path
 
+### 2b. Install repo-owned agentmemory skills for OpenCode
+
+Install the Claude-parity memory skills into OpenCode's native personal skill tree so explicit memory requests can use repo-owned skills rather than relying only on automatic plugin behavior.
+
+Targets:
+
+- `~/.config/opencode/skills/agentmemory-remember/SKILL.md`
+- `~/.config/opencode/skills/agentmemory-recall/SKILL.md`
+- `~/.config/opencode/skills/agentmemory-forget/SKILL.md`
+- `~/.config/opencode/skills/agentmemory-session-history/SKILL.md`
+- `~/.config/opencode/instructions-agentmemory-skills.md`
+
+The installer should rewrite the copied skill frontmatter names to the namespaced OpenCode skill names above to avoid collisions with unrelated globally installed skills.
 ### 3. Add a repo-owned install/deploy script
 
 Add a script that:

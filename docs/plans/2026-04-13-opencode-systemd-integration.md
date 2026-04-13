@@ -131,6 +131,41 @@ Expected: PASS.
 
 Check that the plugin does not require any OpenCode source changes and can be loaded via `file://` config.
 
+### Task 4b: Install Claude-parity agentmemory skills for OpenCode
+
+**Files:**
+- Modify: `install-agentmemory.sh`
+- Create: `integrations/opencode/instructions-agentmemory-skills.md`
+- Source skills: `plugin/skills/remember/SKILL.md`, `plugin/skills/recall/SKILL.md`, `plugin/skills/forget/SKILL.md`, `plugin/skills/session-history/SKILL.md`
+
+**Step 1: Write failing tests**
+
+Add focused tests that assert:
+
+- OpenCode config merge preserves existing `instructions` while adding the agentmemory instruction file once
+- copied OpenCode skills are namespaced as `agentmemory-*`
+- copied skill frontmatter names are rewritten to the namespaced OpenCode skill names
+
+**Step 2: Run focused test to verify it fails**
+
+Run: `PATH=/home/abols/.nvm/versions/node/v22.22.2/bin:$PATH npm test -- test/opencode-installer.test.ts`
+
+Expected: FAIL before the installer helper exists.
+
+**Step 3: Implement minimal installer support**
+
+Extend the installer so it:
+
+- copies the four repo-owned skills into `~/.config/opencode/skills/agentmemory-{remember,recall,forget,session-history}`
+- rewrites each copied `SKILL.md` frontmatter `name:` to the namespaced OpenCode skill name
+- installs `integrations/opencode/instructions-agentmemory-skills.md`
+- merges `~/.config/opencode/opencode.json` to add the instruction file without duplicating existing entries
+
+**Step 4: Run focused test to verify it passes**
+
+Run: `PATH=/home/abols/.nvm/versions/node/v22.22.2/bin:$PATH npm test -- test/opencode-installer.test.ts`
+
+Expected: PASS.
 ### Task 5: Add deployment/install script
 
 **Files:**

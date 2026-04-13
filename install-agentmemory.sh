@@ -4,13 +4,17 @@ set -euo pipefail
 SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-/opt/agentmemory}"
 SERVICE_NAME="${SERVICE_NAME:-agentmemory}"
-NODE_DIR="/home/abols/.nvm/versions/node/v22.22.2"
+DEFAULT_NODE_DIR="${HOME}/.nvm/versions/node/v22.22.2"
+if [[ ${EUID} -eq 0 ]]; then
+  DEFAULT_NODE_DIR="/home/${SUDO_USER:-abols}/.nvm/versions/node/v22.22.2"
+fi
+NODE_DIR="${NODE_DIR:-${DEFAULT_NODE_DIR}}"
 NODE_BIN="${NODE_DIR}/bin/node"
 NPM_BIN="${NODE_DIR}/bin/npm"
 PLUGIN_SOURCE="${SOURCE_DIR}/integrations/opencode/plugin.js"
+OPENCODE_INSTRUCTIONS_SOURCE="${SOURCE_DIR}/integrations/opencode/instructions-agentmemory-skills.md"
 CLAUDE_HOOKS_SOURCE="${SOURCE_DIR}/integrations/claude-code/hooks"
 CLAUDE_PLUGIN_SOURCE="${SOURCE_DIR}/plugin"
-MCP_COMMAND_NODE="/home/abols/.nvm/versions/node/v22.22.2/bin/node"
 
 if [[ ${EUID} -eq 0 ]]; then
   SERVICE_USER="${SERVICE_USER:-${SUDO_USER:-abols}}"
@@ -27,6 +31,8 @@ OPENCODE_HOME="${OPENCODE_HOME:-${SERVICE_HOME}}"
 OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${OPENCODE_HOME}/.config/opencode}"
 OPENCODE_PLUGIN_PATH="${OPENCODE_PLUGIN_PATH:-${OPENCODE_CONFIG_DIR}/plugins/agentmemory.js}"
 OPENCODE_CONFIG_PATH="${OPENCODE_CONFIG_PATH:-${OPENCODE_CONFIG_DIR}/opencode.json}"
+OPENCODE_SKILLS_DIR="${OPENCODE_SKILLS_DIR:-${OPENCODE_CONFIG_DIR}/skills}"
+OPENCODE_INSTRUCTIONS_PATH="${OPENCODE_INSTRUCTIONS_PATH:-${OPENCODE_CONFIG_DIR}/instructions-agentmemory-skills.md}"
 AGENTMEMORY_DATA="${AGENTMEMORY_DATA:-${SERVICE_HOME}/.agentmemory}"
 CLAUDE_HOME="${CLAUDE_HOME:-${SERVICE_HOME}}"
 CLAUDE_SETTINGS_PATH="${CLAUDE_SETTINGS_PATH:-${CLAUDE_HOME}/.claude/settings.json}"
@@ -35,6 +41,7 @@ CLAUDE_PLUGINS_DIR="${CLAUDE_PLUGINS_DIR:-${CLAUDE_HOME}/.claude/plugins}"
 CLAUDE_PLUGIN_ID="agentmemory@agentmemory-local"
 SYSTEMD_UNIT_PATH="${SYSTEMD_UNIT_PATH:-/etc/systemd/system/${SERVICE_NAME}.service}"
 PLUGIN_URL="${PLUGIN_URL:-file://${OPENCODE_PLUGIN_PATH}}"
+OPENCODE_INSTRUCTIONS_URL="${OPENCODE_INSTRUCTIONS_URL:-file://${OPENCODE_INSTRUCTIONS_PATH}}"
 MCP_COMMAND_CLI="${MCP_COMMAND_CLI:-${INSTALL_DIR}/dist/cli.mjs}"
 BUILD_USER="${BUILD_USER:-$(stat -c '%U' "${SOURCE_DIR}")}"
 BUILD_HOME="${BUILD_HOME:-$(getent passwd "${BUILD_USER}" | cut -d: -f6 || true)}"
@@ -43,12 +50,14 @@ if [[ -z "${BUILD_HOME}" ]]; then
   BUILD_HOME="${SERVICE_HOME}"
 fi
 
+MCP_COMMAND_NODE="${MCP_COMMAND_NODE:-${NODE_BIN}}"
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0")
 
 Build agentmemory from the current checkout, deploy runtime files into ${INSTALL_DIR},
-install the OpenCode plugin, Claude Code hooks, and merge configs.
+install the OpenCode plugin, OpenCode agentmemory skills, Claude Code hooks, and merge configs.
 
 Root mode:
   - deploys files into ${INSTALL_DIR}
@@ -57,12 +66,13 @@ Root mode:
 
 Non-root mode:
   - deploys files into ${INSTALL_DIR} only when it is writable
-  - installs the OpenCode plugin/config merge
+  - installs the OpenCode plugin, OpenCode agentmemory skills, and config merge
   - skips systemd changes
 
 Optional overrides:
   INSTALL_DIR, SERVICE_USER, SERVICE_HOME, OPENCODE_CONFIG_DIR,
-  OPENCODE_PLUGIN_PATH, OPENCODE_CONFIG_PATH, AGENTMEMORY_DATA,
+  OPENCODE_PLUGIN_PATH, OPENCODE_CONFIG_PATH, OPENCODE_SKILLS_DIR,
+  OPENCODE_INSTRUCTIONS_PATH, AGENTMEMORY_DATA,
   SYSTEMD_UNIT_PATH, BUILD_USER, BUILD_HOME, CLAUDE_HOME,
   CLAUDE_SETTINGS_PATH, CLAUDE_HOOKS_DIR
 EOF
@@ -129,12 +139,67 @@ install_opencode_plugin() {
   [[ -f "${PLUGIN_SOURCE}" ]] || error "Missing ${PLUGIN_SOURCE}"
   plugin_dir="$(dirname "${OPENCODE_PLUGIN_PATH}")"
   install -d -m 0755 "${plugin_dir}"
-  if [[ ${EUID} -eq 0 ]]; then
-    [[ -d "${plugin_dir}" ]] && chown -R "${SERVICE_USER}:${SERVICE_USER}" "${plugin_dir}"
-  fi
   install -m 0644 "${PLUGIN_SOURCE}" "${OPENCODE_PLUGIN_PATH}"
   if [[ ${EUID} -eq 0 ]]; then
     chown "${SERVICE_USER}:${SERVICE_USER}" "${OPENCODE_PLUGIN_PATH}"
+  fi
+}
+
+install_opencode_skills() {
+  local source_skills_dir skill_source_dir skill_name target_dir
+
+  source_skills_dir="${CLAUDE_PLUGIN_SOURCE}/skills"
+  [[ -d "${source_skills_dir}" ]] || error "Missing ${source_skills_dir}"
+
+  install -d -m 0755 "${OPENCODE_SKILLS_DIR}"
+  if [[ ${EUID} -eq 0 ]]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${OPENCODE_SKILLS_DIR}"
+  fi
+
+  for skill_name in remember recall forget session-history; do
+    skill_source_dir="${source_skills_dir}/${skill_name}"
+    [[ -d "${skill_source_dir}" ]] || error "Missing ${skill_source_dir}"
+    target_dir="${OPENCODE_SKILLS_DIR}/agentmemory-${skill_name}"
+    install -d -m 0755 "${target_dir}"
+    rsync -a --delete "${skill_source_dir}/" "${target_dir}/"
+
+    OPENCODE_SKILL_PATH="${target_dir}/SKILL.md" \
+    OPENCODE_SKILL_NAME="agentmemory-${skill_name}" \
+    INSTALLER_MODULE_PATH="${SOURCE_DIR}/src/integrations/opencode-installer.js" \
+    "${NODE_BIN}" <<'EOF'
+import { readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const filePath = process.env.OPENCODE_SKILL_PATH;
+const skillName = process.env.OPENCODE_SKILL_NAME;
+const modulePath = process.env.INSTALLER_MODULE_PATH;
+
+if (!filePath || !skillName || !modulePath) {
+  throw new Error("Missing OpenCode skill rewrite inputs");
+}
+
+const { rewriteOpenCodeSkillFrontmatter } = await import(
+  pathToFileURL(modulePath).href
+);
+const content = readFileSync(filePath, "utf8");
+writeFileSync(filePath, rewriteOpenCodeSkillFrontmatter(content, skillName));
+EOF
+
+    if [[ ${EUID} -eq 0 ]]; then
+      chown -R "${SERVICE_USER}:${SERVICE_USER}" "${target_dir}"
+    fi
+  done
+}
+
+install_opencode_instructions() {
+  local instructions_dir
+
+  [[ -f "${OPENCODE_INSTRUCTIONS_SOURCE}" ]] || error "Missing ${OPENCODE_INSTRUCTIONS_SOURCE}"
+  instructions_dir="$(dirname "${OPENCODE_INSTRUCTIONS_PATH}")"
+  install -d -m 0755 "${instructions_dir}"
+  install -m 0644 "${OPENCODE_INSTRUCTIONS_SOURCE}" "${OPENCODE_INSTRUCTIONS_PATH}"
+  if [[ ${EUID} -eq 0 ]]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${OPENCODE_INSTRUCTIONS_PATH}"
   fi
 }
 
@@ -143,26 +208,30 @@ merge_opencode_config() {
 
   config_dir="$(dirname "${OPENCODE_CONFIG_PATH}")"
   install -d -m 0755 "${config_dir}"
-  if [[ ${EUID} -eq 0 ]]; then
-    [[ -d "${config_dir}" ]] && chown -R "${SERVICE_USER}:${SERVICE_USER}" "${config_dir}"
-  fi
 
   OPENCODE_CONFIG_PATH="${OPENCODE_CONFIG_PATH}" \
   PLUGIN_URL="${PLUGIN_URL}" \
+  OPENCODE_INSTRUCTIONS_URL="${OPENCODE_INSTRUCTIONS_URL}" \
   MCP_COMMAND_NODE="${MCP_COMMAND_NODE}" \
   MCP_COMMAND_CLI="${MCP_COMMAND_CLI}" \
+  INSTALLER_MODULE_PATH="${SOURCE_DIR}/src/integrations/opencode-installer.js" \
   "${NODE_BIN}" <<'EOF'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const configPath = process.env.OPENCODE_CONFIG_PATH;
 const pluginUrl = process.env.PLUGIN_URL;
+const instructionUrl = process.env.OPENCODE_INSTRUCTIONS_URL;
 const mcpCommandNode = process.env.MCP_COMMAND_NODE;
 const mcpCommandCli = process.env.MCP_COMMAND_CLI;
+const modulePath = process.env.INSTALLER_MODULE_PATH;
 
-if (!configPath || !pluginUrl || !mcpCommandNode || !mcpCommandCli) {
+if (!configPath || !pluginUrl || !instructionUrl || !mcpCommandNode || !mcpCommandCli || !modulePath) {
   throw new Error("Missing OpenCode config merge inputs");
 }
+
+const { mergeOpenCodeConfig } = await import(pathToFileURL(modulePath).href);
 
 let config = {};
 if (existsSync(configPath)) {
@@ -176,25 +245,12 @@ if (!config || Array.isArray(config) || typeof config !== "object") {
   throw new Error(`${configPath} must contain a JSON object`);
 }
 
-const next = { ...config };
-const plugin = Array.isArray(next.plugin) ? [...next.plugin] : [];
-if (!plugin.includes(pluginUrl)) {
-  plugin.push(pluginUrl);
-}
-next.plugin = plugin;
-
-const mcp = next.mcp && typeof next.mcp === "object" && !Array.isArray(next.mcp)
-  ? { ...next.mcp }
-  : {};
-const agentmemory = mcp.agentmemory && typeof mcp.agentmemory === "object" && !Array.isArray(mcp.agentmemory)
-  ? { ...mcp.agentmemory }
-  : {};
-
-agentmemory.type = "local";
-agentmemory.command = [mcpCommandNode, mcpCommandCli, "mcp"];
-
-mcp.agentmemory = agentmemory;
-next.mcp = mcp;
+const next = mergeOpenCodeConfig(config, {
+  pluginUrl,
+  instructionUrl,
+  mcpCommandNode,
+  mcpCommandCli,
+});
 
 mkdirSync(dirname(configPath), { recursive: true });
 writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`);
@@ -211,7 +267,7 @@ install_claude_hooks() {
   [[ -d "${CLAUDE_HOOKS_SOURCE}" ]] || error "Missing ${CLAUDE_HOOKS_SOURCE}"
   install -d -m 0755 "${CLAUDE_HOOKS_DIR}"
   if [[ ${EUID} -eq 0 ]]; then
-    [[ -d "${CLAUDE_HOOKS_DIR}" ]] && chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CLAUDE_HOOKS_DIR}"
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${CLAUDE_HOOKS_DIR}"
   fi
 
   for hook_file in "${CLAUDE_HOOKS_SOURCE}"/agentmemory-*.sh; do
@@ -462,6 +518,12 @@ main() {
 
   info "Installing OpenCode plugin to ${OPENCODE_PLUGIN_PATH}"
   install_opencode_plugin
+
+  info "Installing OpenCode agentmemory skills to ${OPENCODE_SKILLS_DIR}"
+  install_opencode_skills
+
+  info "Installing OpenCode instructions to ${OPENCODE_INSTRUCTIONS_PATH}"
+  install_opencode_instructions
 
   info "Merging OpenCode config at ${OPENCODE_CONFIG_PATH}"
   merge_opencode_config
