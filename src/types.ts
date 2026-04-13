@@ -117,7 +117,13 @@ export interface ProviderConfig {
   baseURL?: string;
 }
 
-export type ProviderType = "agent-sdk" | "anthropic" | "gemini" | "openrouter" | "minimax";
+export type ProviderType =
+  | "agent-sdk"
+  | "anthropic"
+  | "gemini"
+  | "openrouter"
+  | "minimax"
+  | "copilot";
 
 export interface MemoryProvider {
   name: string;
