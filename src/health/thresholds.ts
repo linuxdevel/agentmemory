@@ -14,7 +14,7 @@ const DEFAULTS: ThresholdConfig = {
   eventLoopLagCriticalMs: 500,
   cpuWarnPercent: 80,
   cpuCriticalPercent: 90,
-  memoryWarnPercent: 80,
+  memoryWarnPercent: 90,
   memoryCriticalPercent: 95,
 };
 
