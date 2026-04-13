@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+if (!(globalThis as { crypto?: { randomUUID: () => string } }).crypto) {
+  (globalThis as { crypto?: { randomUUID: () => string } }).crypto = {
+    randomUUID: () => "12345678-1234-1234-1234-123456789abc",
+  };
+}
+
 vi.mock("iii-sdk", () => ({
   getContext: () => ({
     logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -145,6 +151,58 @@ describe("Relations Functions", () => {
 
       const old = await kv.get<Memory>("mem:memories", "mem_old");
       expect(old!.isLatest).toBe(false);
+    });
+
+    it("writes evolved memory before demoting old latest record", async () => {
+      const setCalls: Array<{ key: string; value: unknown }> = [];
+      const original = makeMemory({ id: "mem_old", version: 1 });
+      await kv.set("mem:memories", "mem_old", original);
+
+      const originalSet = kv.set;
+      kv.set = vi.fn(async (scope: string, key: string, value: unknown) => {
+        setCalls.push({ key, value });
+        return originalSet(scope, key, value);
+      });
+
+      await sdk.trigger("mem::evolve", {
+        memoryId: "mem_old",
+        newContent: "Updated content",
+      });
+
+      const memoryWrites = setCalls.filter(({ key }) => key !== "mem_old");
+      const oldWrite = setCalls.find(({ key, value }) => key === "mem_old" && (value as Memory).isLatest === false);
+
+      expect(memoryWrites[0]?.key).toMatch(/^mem_/);
+      expect((memoryWrites[0]?.value as Memory).isLatest).toBe(true);
+      expect(oldWrite).toBeDefined();
+      expect(setCalls.indexOf(oldWrite!)).toBeGreaterThan(setCalls.indexOf(memoryWrites[0]!));
+    });
+
+    it("keeps evolved memory persisted if demotion write fails", async () => {
+      const writes = new Map<string, Memory>();
+      const original = makeMemory({ id: "mem_old", version: 1 });
+      await kv.set("mem:memories", "mem_old", original);
+
+      const originalSet = kv.set;
+      kv.set = vi.fn(async (scope: string, key: string, value: unknown) => {
+        writes.set(key, value as Memory);
+        if (key === "mem_old" && (value as Memory).isLatest === false) {
+          throw new Error("demotion failed");
+        }
+        return originalSet(scope, key, value);
+      });
+
+      await expect(
+        sdk.trigger("mem::evolve", {
+          memoryId: "mem_old",
+          newContent: "Updated content",
+        }),
+      ).rejects.toThrow(/demotion failed/i);
+
+      const evolved = Array.from(writes.values()).find((m) => m.id !== "mem_old");
+      expect(evolved).toBeDefined();
+      expect(evolved!.isLatest).toBe(true);
+      expect(writes.get("mem_old")?.isLatest).toBe(false);
     });
 
     it("returns error when memory not found", async () => {
