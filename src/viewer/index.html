@@ -2858,6 +2858,11 @@
       }
     }
 
+    var debouncedDashboardReload = debounce(function() {
+      state.dashboard.loaded = false;
+      loadDashboard();
+    }, 2000);
+
     function routeWsMessage(msg) {
       if (state.activeTab === 'timeline' && msg.observation) {
         if (!state.timeline.sessionId || msg.observation.sessionId === state.timeline.sessionId) {
@@ -2871,8 +2876,7 @@
         }
       }
       if (state.activeTab === 'dashboard') {
-        state.dashboard.loaded = false;
-        loadDashboard();
+        debouncedDashboardReload();
       }
       if (state.activeTab === 'activity' && msg.observation) {
         state.activity.observations.unshift(msg.observation);
