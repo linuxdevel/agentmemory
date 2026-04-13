@@ -2,6 +2,7 @@ const REST_URL = process.env.AGENTMEMORY_URL || "http://127.0.0.1:3111";
 const SECRET = process.env.AGENTMEMORY_SECRET || "";
 
 const sessionState = new Map();
+let activeSessionId = null;
 const toolNames = {
   read: "Read",
   write: "Write",
@@ -107,11 +108,35 @@ function stringifyError(value) {
 }
 
 export async function AgentMemoryPlugin({ directory }) {
+  // On process exit, call session/end to trigger crystallization
+  let exitHandlerRegistered = false;
+  function registerExitHandler() {
+    if (exitHandlerRegistered) return;
+    exitHandlerRegistered = true;
+    const endSession = () => {
+      if (!activeSessionId) return;
+      try {
+        // Synchronous HTTP via fetch with keepalive for exit handlers
+        fetch(`${REST_URL}/agentmemory/session/end`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ sessionId: activeSessionId }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {}
+    };
+    process.on("beforeExit", endSession);
+    process.on("SIGINT", endSession);
+    process.on("SIGTERM", endSession);
+  }
+
   return {
     "experimental.chat.system.transform": async (input, output) => {
       const sessionId = input?.sessionID;
       if (!sessionId) return;
 
+      activeSessionId = sessionId;
+      registerExitHandler();
       const session = getSession(sessionId);
       if (!session.started) {
         try {
@@ -137,7 +162,7 @@ export async function AgentMemoryPlugin({ directory }) {
     },
 
     "experimental.chat.messages.transform": async (_input, output) => {
-      const sessionId = output?.sessionID;
+      const sessionId = output?.sessionID || activeSessionId;
       if (!sessionId) return;
 
       const session = getSession(sessionId);
