@@ -14,7 +14,7 @@ const DEFAULTS: ThresholdConfig = {
   eventLoopLagCriticalMs: 500,
   cpuWarnPercent: 80,
   cpuCriticalPercent: 90,
-  memoryWarnPercent: 90,
+  memoryWarnPercent: 80,
   memoryCriticalPercent: 95,
 };
 
@@ -56,9 +56,10 @@ export function evaluateHealth(
     degraded = true;
   }
 
+  const heapCeiling = snapshot.memory.heapLimit || snapshot.memory.heapTotal;
   const memPercent =
-    snapshot.memory.heapTotal > 0
-      ? (snapshot.memory.heapUsed / snapshot.memory.heapTotal) * 100
+    heapCeiling > 0
+      ? (snapshot.memory.heapUsed / heapCeiling) * 100
       : 0;
   if (memPercent > cfg.memoryCriticalPercent) {
     alerts.push(`memory_critical_${Math.round(memPercent)}%`);
