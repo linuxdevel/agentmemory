@@ -1020,7 +1020,7 @@
       var snap = h.health || {};
       var healthStatus = h.status || 'unknown';
       var dotClass = healthStatus === 'healthy' ? 'healthy' : healthStatus === 'degraded' ? 'degraded' : healthStatus === 'critical' ? 'critical' : '';
-      var activeSessions = d.sessions.filter(function(s) { return s.status === 'active'; }).length;
+      var activeSessionCount = d.sessions.filter(function(s) { return s.status === 'active'; }).length;
       var gs = d.graphStats || {};
       var nodeCount = (gs.nodes !== undefined) ? gs.nodes : (gs.nodeCount || 0);
       var edgeCount = (gs.edges !== undefined) ? gs.edges : (gs.edgeCount || 0);
@@ -1035,8 +1035,8 @@
       // estFull: without agentmemory, relevant observations would need raw inclusion (~450 tokens avg stored size)
       var estFull = totalObs * 450;
       // estInjected: each active session injects context per prompt (~1 prompt per 5 tool calls)
-      var activeSessions = d.sessions.filter(function(s) { return (s.observationCount || 0) > 1; });
-      var estPrompts = activeSessions.reduce(function(a, s) { return a + Math.max(1, Math.ceil((s.observationCount || 0) / 5)); }, 0);
+      var activeSessionsForEstimate = d.sessions.filter(function(s) { return (s.observationCount || 0) > 1; });
+      var estPrompts = activeSessionsForEstimate.reduce(function(a, s) { return a + Math.max(1, Math.ceil((s.observationCount || 0) / 5)); }, 0);
       var estInjected = estPrompts * tokenBudget;
       var savings = estFull > 0 ? Math.round((1 - estInjected / Math.max(estFull, 1)) * 100) : 0;
       if (savings < 0) savings = 0;
@@ -1049,7 +1049,7 @@
       var relItems = d.relations || [];
 
       var statsHtml = '<div class="stats-grid">';
-      statsHtml += '<div class="stat-card"><div class="label">Sessions</div><div class="value">' + d.sessions.length + '</div><div class="sub">' + activeSessions + ' active</div></div>';
+      statsHtml += '<div class="stat-card"><div class="label">Sessions</div><div class="value">' + d.sessions.length + '</div><div class="sub">' + activeSessionCount + ' active</div></div>';
       statsHtml += '<div class="stat-card"><div class="label">Memories</div><div class="value">' + d.memories.length + '</div><div class="sub">latest versions</div></div>';
       statsHtml += '<div class="stat-card"><div class="label">Lessons</div><div class="value">' + lessonCount + '</div><div class="sub">confidence-scored</div></div>';
       statsHtml += '<div class="stat-card"><div class="label">Crystals</div><div class="value">' + crystalCount + '</div><div class="sub">action digests</div></div>';

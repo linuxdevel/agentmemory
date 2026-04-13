@@ -41,4 +41,14 @@ describe("viewer document security", () => {
     expect(rendered.html).toContain("snap.memory.heapLimit || snap.memory.heapTotal || 0");
     expect(rendered.html).toContain("gauge-value\">' + heapUsed + ' / ' + heapMax + ' MB");
   });
+
+  it("renders dashboard session count from numeric active session total", () => {
+    const rendered = renderViewerDocument();
+    expect(rendered.found).toBe(true);
+    if (!rendered.found) return;
+
+    expect(rendered.html).toContain("var activeSessionCount = d.sessions.filter(function(s) { return s.status === 'active'; }).length;");
+    expect(rendered.html).toContain("<div class=\"sub\">' + activeSessionCount + ' active</div>");
+    expect(rendered.html).not.toContain("<div class=\"sub\">' + activeSessions + ' active</div>");
+  });
 });
