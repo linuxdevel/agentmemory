@@ -9,6 +9,7 @@ NODE_BIN="${NODE_DIR}/bin/node"
 NPM_BIN="${NODE_DIR}/bin/npm"
 PLUGIN_SOURCE="${SOURCE_DIR}/integrations/opencode/plugin.js"
 CLAUDE_HOOKS_SOURCE="${SOURCE_DIR}/integrations/claude-code/hooks"
+CLAUDE_PLUGIN_SOURCE="${SOURCE_DIR}/plugin"
 MCP_COMMAND_NODE="/home/abols/.nvm/versions/node/v22.22.2/bin/node"
 
 if [[ ${EUID} -eq 0 ]]; then
@@ -30,6 +31,8 @@ AGENTMEMORY_DATA="${AGENTMEMORY_DATA:-${SERVICE_HOME}/.agentmemory}"
 CLAUDE_HOME="${CLAUDE_HOME:-${SERVICE_HOME}}"
 CLAUDE_SETTINGS_PATH="${CLAUDE_SETTINGS_PATH:-${CLAUDE_HOME}/.claude/settings.json}"
 CLAUDE_HOOKS_DIR="${CLAUDE_HOOKS_DIR:-${CLAUDE_HOME}/.claude/hooks}"
+CLAUDE_PLUGINS_DIR="${CLAUDE_PLUGINS_DIR:-${CLAUDE_HOME}/.claude/plugins}"
+CLAUDE_PLUGIN_ID="agentmemory@agentmemory-local"
 SYSTEMD_UNIT_PATH="${SYSTEMD_UNIT_PATH:-/etc/systemd/system/${SERVICE_NAME}.service}"
 PLUGIN_URL="${PLUGIN_URL:-file://${OPENCODE_PLUGIN_PATH}}"
 MCP_COMMAND_CLI="${MCP_COMMAND_CLI:-${INSTALL_DIR}/dist/cli.mjs}"
@@ -220,6 +223,58 @@ install_claude_hooks() {
   done
 }
 
+install_claude_plugin() {
+  local plugin_json version install_path
+
+  [[ -d "${CLAUDE_PLUGIN_SOURCE}" ]] || error "Missing ${CLAUDE_PLUGIN_SOURCE}"
+  [[ -f "${CLAUDE_PLUGIN_SOURCE}/.claude-plugin/plugin.json" ]] || error "Missing plugin.json"
+
+  version=$("${NODE_BIN}" -e "process.stdout.write(JSON.parse(require('fs').readFileSync('${CLAUDE_PLUGIN_SOURCE}/.claude-plugin/plugin.json','utf8')).version||'local')")
+  install_path="${CLAUDE_PLUGINS_DIR}/cache/agentmemory-local/agentmemory/${version}"
+
+  install -d -m 0755 "${install_path}"
+  rsync -a --delete "${CLAUDE_PLUGIN_SOURCE}/" "${install_path}/"
+
+  if [[ ${EUID} -eq 0 ]]; then
+    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${install_path}"
+  fi
+
+  # Register in installed_plugins.json
+  INSTALLED_PLUGINS_PATH="${CLAUDE_PLUGINS_DIR}/installed_plugins.json" \
+  INSTALL_PATH="${install_path}" \
+  PLUGIN_VERSION="${version}" \
+  PLUGIN_ID="${CLAUDE_PLUGIN_ID}" \
+  "${NODE_BIN}" <<'REGEOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
+const filePath = process.env.INSTALLED_PLUGINS_PATH;
+const installPath = process.env.INSTALL_PATH;
+const version = process.env.PLUGIN_VERSION;
+const pluginId = process.env.PLUGIN_ID;
+
+let data = { version: 2, plugins: {} };
+if (existsSync(filePath)) {
+  const raw = readFileSync(filePath, "utf8").trim();
+  if (raw.length > 0) data = JSON.parse(raw);
+}
+
+const entry = {
+  scope: "user",
+  installPath,
+  version,
+  installedAt: new Date().toISOString(),
+  lastUpdated: new Date().toISOString(),
+};
+
+data.plugins[pluginId] = [entry];
+writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`);
+REGEOF
+
+  if [[ ${EUID} -eq 0 ]]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${CLAUDE_PLUGINS_DIR}/installed_plugins.json"
+  fi
+}
+
 merge_claude_settings() {
   local settings_dir
 
@@ -233,6 +288,7 @@ merge_claude_settings() {
   CLAUDE_HOOKS_DIR="${CLAUDE_HOOKS_DIR}" \
   MCP_COMMAND_NODE="${MCP_COMMAND_NODE}" \
   MCP_COMMAND_CLI="${MCP_COMMAND_CLI}" \
+  CLAUDE_PLUGIN_ID="${CLAUDE_PLUGIN_ID}" \
   "${NODE_BIN}" <<'EOF'
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
@@ -240,8 +296,9 @@ const settingsPath = process.env.CLAUDE_SETTINGS_PATH;
 const hooksDir = process.env.CLAUDE_HOOKS_DIR;
 const mcpNode = process.env.MCP_COMMAND_NODE;
 const mcpCli = process.env.MCP_COMMAND_CLI;
+const pluginId = process.env.CLAUDE_PLUGIN_ID;
 
-if (!settingsPath || !hooksDir || !mcpNode || !mcpCli) {
+if (!settingsPath || !hooksDir || !mcpNode || !mcpCli || !pluginId) {
   throw new Error("Missing Claude Code settings merge inputs");
 }
 
@@ -289,6 +346,13 @@ ensureHookEntry("PreToolUse", "Read|Write|Edit|Grep|Glob", `${hooksDir}/agentmem
 ensureHookEntry("PostToolUse", "", `${hooksDir}/agentmemory-posttool.sh`, 5);
 
 settings.hooks = hooks;
+
+// --- Enable plugin ---
+const enabledPlugins = settings.enabledPlugins && typeof settings.enabledPlugins === "object"
+  ? { ...settings.enabledPlugins }
+  : {};
+enabledPlugins[pluginId] = true;
+settings.enabledPlugins = enabledPlugins;
 
 writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
 EOF
@@ -404,6 +468,9 @@ main() {
 
   info "Installing Claude Code hooks to ${CLAUDE_HOOKS_DIR}"
   install_claude_hooks
+
+  info "Installing Claude Code plugin (skills: remember, recall, forget, session-history)"
+  install_claude_plugin
 
   info "Merging Claude Code settings at ${CLAUDE_SETTINGS_PATH}"
   merge_claude_settings
