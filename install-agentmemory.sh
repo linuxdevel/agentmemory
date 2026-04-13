@@ -400,6 +400,8 @@ function ensureHookEntry(eventName, matcher, hookCommand, timeout) {
 ensureHookEntry("UserPromptSubmit", "", `${hooksDir}/agentmemory-prompt.sh`, 10);
 ensureHookEntry("PreToolUse", "Read|Write|Edit|Grep|Glob", `${hooksDir}/agentmemory-pretool.sh`, 5);
 ensureHookEntry("PostToolUse", "", `${hooksDir}/agentmemory-posttool.sh`, 5);
+const sessionEndHook = mcpCli.replace(/cli\.mjs$/, "hooks/session-end.mjs");
+ensureHookEntry("Stop", "", `${mcpNode} ${sessionEndHook}`, 30);
 
 settings.hooks = hooks;
 
