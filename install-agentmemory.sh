@@ -8,6 +8,7 @@ NODE_DIR="/home/abols/.nvm/versions/node/v22.22.2"
 NODE_BIN="${NODE_DIR}/bin/node"
 NPM_BIN="${NODE_DIR}/bin/npm"
 PLUGIN_SOURCE="${SOURCE_DIR}/integrations/opencode/plugin.js"
+CLAUDE_HOOKS_SOURCE="${SOURCE_DIR}/integrations/claude-code/hooks"
 MCP_COMMAND_NODE="/home/abols/.nvm/versions/node/v22.22.2/bin/node"
 
 if [[ ${EUID} -eq 0 ]]; then
@@ -26,6 +27,9 @@ OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${OPENCODE_HOME}/.config/opencode}"
 OPENCODE_PLUGIN_PATH="${OPENCODE_PLUGIN_PATH:-${OPENCODE_CONFIG_DIR}/plugins/agentmemory.js}"
 OPENCODE_CONFIG_PATH="${OPENCODE_CONFIG_PATH:-${OPENCODE_CONFIG_DIR}/opencode.json}"
 AGENTMEMORY_DATA="${AGENTMEMORY_DATA:-${SERVICE_HOME}/.agentmemory}"
+CLAUDE_HOME="${CLAUDE_HOME:-${SERVICE_HOME}}"
+CLAUDE_SETTINGS_PATH="${CLAUDE_SETTINGS_PATH:-${CLAUDE_HOME}/.claude/settings.json}"
+CLAUDE_HOOKS_DIR="${CLAUDE_HOOKS_DIR:-${CLAUDE_HOME}/.claude/hooks}"
 SYSTEMD_UNIT_PATH="${SYSTEMD_UNIT_PATH:-/etc/systemd/system/${SERVICE_NAME}.service}"
 PLUGIN_URL="${PLUGIN_URL:-file://${OPENCODE_PLUGIN_PATH}}"
 MCP_COMMAND_CLI="${MCP_COMMAND_CLI:-${INSTALL_DIR}/dist/cli.mjs}"
@@ -41,7 +45,7 @@ usage() {
 Usage: $(basename "$0")
 
 Build agentmemory from the current checkout, deploy runtime files into ${INSTALL_DIR},
-install the OpenCode plugin, and merge ${OPENCODE_CONFIG_PATH}.
+install the OpenCode plugin, Claude Code hooks, and merge configs.
 
 Root mode:
   - deploys files into ${INSTALL_DIR}
@@ -56,7 +60,8 @@ Non-root mode:
 Optional overrides:
   INSTALL_DIR, SERVICE_USER, SERVICE_HOME, OPENCODE_CONFIG_DIR,
   OPENCODE_PLUGIN_PATH, OPENCODE_CONFIG_PATH, AGENTMEMORY_DATA,
-  SYSTEMD_UNIT_PATH, BUILD_USER, BUILD_HOME
+  SYSTEMD_UNIT_PATH, BUILD_USER, BUILD_HOME, CLAUDE_HOME,
+  CLAUDE_SETTINGS_PATH, CLAUDE_HOOKS_DIR
 EOF
 }
 
@@ -197,6 +202,102 @@ EOF
   fi
 }
 
+install_claude_hooks() {
+  local hook_file
+
+  [[ -d "${CLAUDE_HOOKS_SOURCE}" ]] || error "Missing ${CLAUDE_HOOKS_SOURCE}"
+  install -d -m 0755 "${CLAUDE_HOOKS_DIR}"
+  if [[ ${EUID} -eq 0 ]]; then
+    [[ -d "${CLAUDE_HOOKS_DIR}" ]] && chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CLAUDE_HOOKS_DIR}"
+  fi
+
+  for hook_file in "${CLAUDE_HOOKS_SOURCE}"/agentmemory-*.sh; do
+    [[ -f "${hook_file}" ]] || continue
+    install -m 0755 "${hook_file}" "${CLAUDE_HOOKS_DIR}/$(basename "${hook_file}")"
+    if [[ ${EUID} -eq 0 ]]; then
+      chown "${SERVICE_USER}:${SERVICE_USER}" "${CLAUDE_HOOKS_DIR}/$(basename "${hook_file}")"
+    fi
+  done
+}
+
+merge_claude_settings() {
+  local settings_dir
+
+  settings_dir="$(dirname "${CLAUDE_SETTINGS_PATH}")"
+  install -d -m 0755 "${settings_dir}"
+  if [[ ${EUID} -eq 0 ]]; then
+    [[ -d "${settings_dir}" ]] && chown -R "${SERVICE_USER}:${SERVICE_USER}" "${settings_dir}"
+  fi
+
+  CLAUDE_SETTINGS_PATH="${CLAUDE_SETTINGS_PATH}" \
+  CLAUDE_HOOKS_DIR="${CLAUDE_HOOKS_DIR}" \
+  MCP_COMMAND_NODE="${MCP_COMMAND_NODE}" \
+  MCP_COMMAND_CLI="${MCP_COMMAND_CLI}" \
+  "${NODE_BIN}" <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
+const settingsPath = process.env.CLAUDE_SETTINGS_PATH;
+const hooksDir = process.env.CLAUDE_HOOKS_DIR;
+const mcpNode = process.env.MCP_COMMAND_NODE;
+const mcpCli = process.env.MCP_COMMAND_CLI;
+
+if (!settingsPath || !hooksDir || !mcpNode || !mcpCli) {
+  throw new Error("Missing Claude Code settings merge inputs");
+}
+
+let settings = {};
+if (existsSync(settingsPath)) {
+  const raw = readFileSync(settingsPath, "utf8").trim();
+  if (raw.length > 0) settings = JSON.parse(raw);
+}
+
+if (!settings || Array.isArray(settings) || typeof settings !== "object") {
+  throw new Error(`${settingsPath} must contain a JSON object`);
+}
+
+// --- MCP server ---
+const mcpServers = settings.mcpServers && typeof settings.mcpServers === "object"
+  ? { ...settings.mcpServers }
+  : {};
+mcpServers.agentmemory = {
+  command: mcpNode,
+  args: [mcpCli, "mcp"],
+};
+settings.mcpServers = mcpServers;
+
+// --- Hooks ---
+const hooks = settings.hooks && typeof settings.hooks === "object"
+  ? { ...settings.hooks }
+  : {};
+
+function ensureHookEntry(eventName, matcher, hookCommand, timeout) {
+  const entries = Array.isArray(hooks[eventName]) ? [...hooks[eventName]] : [];
+  const alreadyPresent = entries.some((entry) =>
+    Array.isArray(entry.hooks) &&
+    entry.hooks.some((h) => h.command === hookCommand)
+  );
+  if (!alreadyPresent) {
+    const hookDef = { type: "command", command: hookCommand };
+    if (timeout) hookDef.timeout = timeout;
+    entries.push({ matcher, hooks: [hookDef] });
+  }
+  hooks[eventName] = entries;
+}
+
+ensureHookEntry("UserPromptSubmit", "", `${hooksDir}/agentmemory-prompt.sh`, 10);
+ensureHookEntry("PreToolUse", "Read|Write|Edit|Grep|Glob", `${hooksDir}/agentmemory-pretool.sh`, 5);
+ensureHookEntry("PostToolUse", "", `${hooksDir}/agentmemory-posttool.sh`, 5);
+
+settings.hooks = hooks;
+
+writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+EOF
+
+  if [[ ${EUID} -eq 0 ]]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${CLAUDE_SETTINGS_PATH}"
+  fi
+}
+
 install_env_file() {
   local env_file old_umask
 
@@ -300,6 +401,12 @@ main() {
 
   info "Merging OpenCode config at ${OPENCODE_CONFIG_PATH}"
   merge_opencode_config
+
+  info "Installing Claude Code hooks to ${CLAUDE_HOOKS_DIR}"
+  install_claude_hooks
+
+  info "Merging Claude Code settings at ${CLAUDE_SETTINGS_PATH}"
+  merge_claude_settings
 
   if [[ ${EUID} -eq 0 ]]; then
     info "Installing systemd service ${SERVICE_NAME}"
