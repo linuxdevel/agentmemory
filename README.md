@@ -660,18 +660,38 @@ Most agents (Cursor, Claude Desktop, Cline, etc.):
 }
 ```
 
-OpenCode (`opencode.json`):
+OpenCode uses the repo-owned installer so the local MCP bridge and plugin both point at the deployed checkout:
+
+```bash
+./install-agentmemory.sh
+```
+
+That installer:
+
+- builds this checkout with `/home/abols/.nvm/versions/node/v22.22.2/bin`
+- deploys the runtime into `/opt/agentmemory`
+- installs `integrations/opencode/plugin.js` to `~/.config/opencode/plugins/agentmemory.js`
+- merges `~/.config/opencode/opencode.json` so it preserves existing settings while ensuring:
+
 ```json
 {
+  "plugin": [
+    "file:///home/abols/.config/opencode/plugins/agentmemory.js"
+  ],
   "mcp": {
     "agentmemory": {
       "type": "local",
-      "command": ["npx", "-y", "agentmemory-mcp"],
-      "enabled": true
+      "command": [
+        "/home/abols/.nvm/versions/node/v22.22.2/bin/node",
+        "/opt/agentmemory/dist/cli.mjs",
+        "mcp"
+      ]
     }
   }
 }
 ```
+
+Run it as root when you also want the systemd install/update path. Run it as your normal user for local redeploys when `/opt/agentmemory` is already writable and you only want to refresh deployed files plus OpenCode config.
 
 ---
 

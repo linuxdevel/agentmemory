@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+const transportState = vi.hoisted(() => ({
+  handler: null as
+    | ((method: string, params: Record<string, unknown>) => Promise<unknown>)
+    | null,
+  start: vi.fn(),
+  stop: vi.fn(),
+}));
+
 vi.mock("iii-sdk", () => ({
   getContext: () => ({
     logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -14,7 +22,14 @@ vi.mock("node:fs", () => ({
 }));
 
 vi.mock("../src/mcp/transport.js", () => ({
-  createStdioTransport: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
+  createStdioTransport: vi.fn(
+    (
+      handler: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+    ) => {
+      transportState.handler = handler;
+      return { start: transportState.start, stop: transportState.stop };
+    },
+  ),
 }));
 
 vi.mock("../src/config.js", () => ({
@@ -29,6 +44,259 @@ import {
 import { InMemoryKV } from "../src/mcp/in-memory-kv.js";
 import { handleToolCall } from "../src/mcp/standalone.js";
 import { writeFileSync } from "node:fs";
+
+describe("standalone MCP stdio bridge", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.AGENTMEMORY_URL;
+    delete process.env.AGENTMEMORY_SECRET;
+  });
+
+  it("tools/list is sourced from the REST endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        tools: [
+          {
+            name: "remote_only_tool",
+            description: "Returned by service",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await transportState.handler?.("tools/list", {});
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3111/agentmemory/mcp/tools",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result).toEqual({
+      tools: [
+        {
+          name: "remote_only_tool",
+          description: "Returned by service",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+    });
+  });
+
+  it("initialize advertises tools, resources, and prompts capabilities", async () => {
+    await expect(transportState.handler?.("initialize", {})).resolves.toEqual({
+      protocolVersion: "2024-11-05",
+      capabilities: {
+        tools: { listChanged: false },
+        resources: { listChanged: false },
+        prompts: { listChanged: false },
+      },
+      serverInfo: {
+        name: "agentmemory",
+        version: expect.any(String),
+      },
+    });
+  });
+
+  it("tools/call forwards payloads to REST and returns the remote result", async () => {
+    process.env.AGENTMEMORY_URL = "http://agentmemory.example:4010";
+    process.env.AGENTMEMORY_SECRET = "top-secret";
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        content: [{ type: "text", text: '{"saved":"mem_remote"}' }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await transportState.handler?.("tools/call", {
+      name: "memory_save",
+      arguments: { content: "Persist this remotely" },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://agentmemory.example:4010/agentmemory/mcp/call",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer top-secret",
+        },
+        body: JSON.stringify({
+          name: "memory_save",
+          arguments: { content: "Persist this remotely" },
+        }),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(result).toEqual({
+      content: [{ type: "text", text: '{"saved":"mem_remote"}' }],
+    });
+  });
+
+  it("supports resources and prompts methods through the REST bridge", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          resources: [{ uri: "agentmemory://status", name: "Status" }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          contents: [{ uri: "agentmemory://status", text: "{}" }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          prompts: [{ name: "recall_context", description: "Recall context" }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          messages: [{ role: "user", content: { type: "text", text: "ctx" } }],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(transportState.handler?.("resources/list", {})).resolves.toEqual({
+      resources: [{ uri: "agentmemory://status", name: "Status" }],
+    });
+    await expect(
+      transportState.handler?.("resources/read", { uri: "agentmemory://status" }),
+    ).resolves.toEqual({
+      contents: [{ uri: "agentmemory://status", text: "{}" }],
+    });
+    await expect(transportState.handler?.("prompts/list", {})).resolves.toEqual({
+      prompts: [{ name: "recall_context", description: "Recall context" }],
+    });
+    await expect(
+      transportState.handler?.("prompts/get", {
+        name: "recall_context",
+        arguments: { task_description: "Investigate bridge" },
+      }),
+    ).resolves.toEqual({
+      messages: [{ role: "user", content: { type: "text", text: "ctx" } }],
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:3111/agentmemory/mcp/resources",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:3111/agentmemory/mcp/resources/read",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ uri: "agentmemory://status" }),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:3111/agentmemory/mcp/prompts",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "http://127.0.0.1:3111/agentmemory/mcp/prompts/get",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "recall_context",
+          arguments: { task_description: "Investigate bridge" },
+        }),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("normalizes non-tools REST failures into MCP error payloads", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => JSON.stringify({ error: "service unavailable" }),
+      headers: new Headers({ "content-type": "application/json" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(transportState.handler?.("resources/list", {})).resolves.toEqual({
+      content: [{ type: "text", text: "Error: service unavailable" }],
+      isError: true,
+    });
+  });
+
+  it("normalizes tools/list REST failures into MCP error payloads", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => JSON.stringify({ error: "service unavailable" }),
+      headers: new Headers({ "content-type": "application/json" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(transportState.handler?.("tools/list", {})).resolves.toEqual({
+      content: [{ type: "text", text: "Error: service unavailable" }],
+      isError: true,
+    });
+  });
+
+  it("returns actionable timeout errors for hanging REST requests", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      init?.signal?.throwIfAborted();
+      throw new DOMException("The operation was aborted.", "AbortError");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(transportState.handler?.("prompts/list", {})).resolves.toEqual({
+      content: [{ type: "text", text: "Error: Request timed out" }],
+      isError: true,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3111/agentmemory/mcp/prompts",
+      expect.objectContaining({
+        method: "GET",
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("returns actionable errors for upstream empty or non-JSON failures", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        text: async () => "",
+        headers: new Headers(),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        text: async () => "bad gateway",
+        headers: new Headers({ "content-type": "text/plain" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(transportState.handler?.("resources/list", {})).resolves.toEqual({
+      content: [{ type: "text", text: "Error: Request failed with status 502" }],
+      isError: true,
+    });
+    await expect(transportState.handler?.("resources/list", {})).resolves.toEqual({
+      content: [{ type: "text", text: "Error: bad gateway" }],
+      isError: true,
+    });
+  });
+});
 
 describe("Tools Registry", () => {
   it("getAllTools returns all tools with unique names", () => {

@@ -1,0 +1,315 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="${INSTALL_DIR:-/opt/agentmemory}"
+SERVICE_NAME="${SERVICE_NAME:-agentmemory}"
+NODE_DIR="/home/abols/.nvm/versions/node/v22.22.2"
+NODE_BIN="${NODE_DIR}/bin/node"
+NPM_BIN="${NODE_DIR}/bin/npm"
+PLUGIN_SOURCE="${SOURCE_DIR}/integrations/opencode/plugin.js"
+MCP_COMMAND_NODE="/home/abols/.nvm/versions/node/v22.22.2/bin/node"
+
+if [[ ${EUID} -eq 0 ]]; then
+  SERVICE_USER="${SERVICE_USER:-${SUDO_USER:-abols}}"
+else
+  SERVICE_USER="${SERVICE_USER:-$(id -un)}"
+fi
+
+SERVICE_HOME="${SERVICE_HOME:-$(getent passwd "${SERVICE_USER}" | cut -d: -f6 || true)}"
+if [[ -z "${SERVICE_HOME}" ]]; then
+  SERVICE_HOME="${HOME}"
+fi
+
+OPENCODE_HOME="${OPENCODE_HOME:-${SERVICE_HOME}}"
+OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${OPENCODE_HOME}/.config/opencode}"
+OPENCODE_PLUGIN_PATH="${OPENCODE_PLUGIN_PATH:-${OPENCODE_CONFIG_DIR}/plugins/agentmemory.js}"
+OPENCODE_CONFIG_PATH="${OPENCODE_CONFIG_PATH:-${OPENCODE_CONFIG_DIR}/opencode.json}"
+AGENTMEMORY_DATA="${AGENTMEMORY_DATA:-${SERVICE_HOME}/.agentmemory}"
+SYSTEMD_UNIT_PATH="${SYSTEMD_UNIT_PATH:-/etc/systemd/system/${SERVICE_NAME}.service}"
+PLUGIN_URL="${PLUGIN_URL:-file://${OPENCODE_PLUGIN_PATH}}"
+MCP_COMMAND_CLI="${MCP_COMMAND_CLI:-${INSTALL_DIR}/dist/cli.mjs}"
+BUILD_USER="${BUILD_USER:-$(stat -c '%U' "${SOURCE_DIR}")}"
+BUILD_HOME="${BUILD_HOME:-$(getent passwd "${BUILD_USER}" | cut -d: -f6 || true)}"
+
+if [[ -z "${BUILD_HOME}" ]]; then
+  BUILD_HOME="${SERVICE_HOME}"
+fi
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0")
+
+Build agentmemory from the current checkout, deploy runtime files into ${INSTALL_DIR},
+install the OpenCode plugin, and merge ${OPENCODE_CONFIG_PATH}.
+
+Root mode:
+  - deploys files into ${INSTALL_DIR}
+  - creates/updates ${SYSTEMD_UNIT_PATH}
+  - enables and restarts ${SERVICE_NAME}
+
+Non-root mode:
+  - deploys files into ${INSTALL_DIR} only when it is writable
+  - installs the OpenCode plugin/config merge
+  - skips systemd changes
+
+Optional overrides:
+  INSTALL_DIR, SERVICE_USER, SERVICE_HOME, OPENCODE_CONFIG_DIR,
+  OPENCODE_PLUGIN_PATH, OPENCODE_CONFIG_PATH, AGENTMEMORY_DATA,
+  SYSTEMD_UNIT_PATH, BUILD_USER, BUILD_HOME
+EOF
+}
+
+info() {
+  printf '[INFO] %s\n' "$*"
+}
+
+warn() {
+  printf '[WARN] %s\n' "$*"
+}
+
+error() {
+  printf '[ERROR] %s\n' "$*" >&2
+  exit 1
+}
+
+run_as_build_user() {
+  if [[ ${EUID} -eq 0 && "${BUILD_USER}" != "root" ]]; then
+    sudo -u "${BUILD_USER}" env HOME="${BUILD_HOME}" PATH="${NODE_DIR}/bin:${PATH}" "$@"
+  else
+    env HOME="${BUILD_HOME}" PATH="${NODE_DIR}/bin:${PATH}" "$@"
+  fi
+}
+
+ensure_writable_install_dir() {
+  local parent_dir
+
+  if [[ -d "${INSTALL_DIR}" ]]; then
+    [[ -w "${INSTALL_DIR}" ]] || error "${INSTALL_DIR} is not writable"
+    return
+  fi
+
+  parent_dir="$(dirname "${INSTALL_DIR}")"
+  [[ -d "${parent_dir}" ]] || error "Parent directory ${parent_dir} does not exist"
+  [[ -w "${parent_dir}" ]] || error "Parent directory ${parent_dir} is not writable"
+}
+
+sync_runtime() {
+  local item
+
+  command -v rsync >/dev/null 2>&1 || error "rsync is required"
+  install -d -m 0755 "${INSTALL_DIR}"
+
+  for item in dist node_modules; do
+    [[ -d "${SOURCE_DIR}/${item}" ]] || error "Missing ${SOURCE_DIR}/${item}; build did not complete"
+    rsync -a --delete "${SOURCE_DIR}/${item}/" "${INSTALL_DIR}/${item}/"
+  done
+
+  for item in package.json package-lock.json iii-config.yaml iii-config.docker.yaml docker-compose.yml; do
+    [[ -f "${SOURCE_DIR}/${item}" ]] || error "Missing ${SOURCE_DIR}/${item}"
+    rsync -a "${SOURCE_DIR}/${item}" "${INSTALL_DIR}/${item}"
+  done
+
+  if [[ ${EUID} -eq 0 ]]; then
+    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}"
+  fi
+}
+
+install_opencode_plugin() {
+  local plugin_dir
+
+  [[ -f "${PLUGIN_SOURCE}" ]] || error "Missing ${PLUGIN_SOURCE}"
+  plugin_dir="$(dirname "${OPENCODE_PLUGIN_PATH}")"
+  install -d -m 0755 "${plugin_dir}"
+  if [[ ${EUID} -eq 0 ]]; then
+    [[ -d "${plugin_dir}" ]] && chown -R "${SERVICE_USER}:${SERVICE_USER}" "${plugin_dir}"
+  fi
+  install -m 0644 "${PLUGIN_SOURCE}" "${OPENCODE_PLUGIN_PATH}"
+  if [[ ${EUID} -eq 0 ]]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${OPENCODE_PLUGIN_PATH}"
+  fi
+}
+
+merge_opencode_config() {
+  local config_dir
+
+  config_dir="$(dirname "${OPENCODE_CONFIG_PATH}")"
+  install -d -m 0755 "${config_dir}"
+  if [[ ${EUID} -eq 0 ]]; then
+    [[ -d "${config_dir}" ]] && chown -R "${SERVICE_USER}:${SERVICE_USER}" "${config_dir}"
+  fi
+
+  OPENCODE_CONFIG_PATH="${OPENCODE_CONFIG_PATH}" \
+  PLUGIN_URL="${PLUGIN_URL}" \
+  MCP_COMMAND_NODE="${MCP_COMMAND_NODE}" \
+  MCP_COMMAND_CLI="${MCP_COMMAND_CLI}" \
+  "${NODE_BIN}" <<'EOF'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
+const configPath = process.env.OPENCODE_CONFIG_PATH;
+const pluginUrl = process.env.PLUGIN_URL;
+const mcpCommandNode = process.env.MCP_COMMAND_NODE;
+const mcpCommandCli = process.env.MCP_COMMAND_CLI;
+
+if (!configPath || !pluginUrl || !mcpCommandNode || !mcpCommandCli) {
+  throw new Error("Missing OpenCode config merge inputs");
+}
+
+let config = {};
+if (existsSync(configPath)) {
+  const raw = readFileSync(configPath, "utf8").trim();
+  if (raw.length > 0) {
+    config = JSON.parse(raw);
+  }
+}
+
+if (!config || Array.isArray(config) || typeof config !== "object") {
+  throw new Error(`${configPath} must contain a JSON object`);
+}
+
+const next = { ...config };
+const plugin = Array.isArray(next.plugin) ? [...next.plugin] : [];
+if (!plugin.includes(pluginUrl)) {
+  plugin.push(pluginUrl);
+}
+next.plugin = plugin;
+
+const mcp = next.mcp && typeof next.mcp === "object" && !Array.isArray(next.mcp)
+  ? { ...next.mcp }
+  : {};
+const agentmemory = mcp.agentmemory && typeof mcp.agentmemory === "object" && !Array.isArray(mcp.agentmemory)
+  ? { ...mcp.agentmemory }
+  : {};
+
+agentmemory.type = "local";
+agentmemory.command = [mcpCommandNode, mcpCommandCli, "mcp"];
+
+mcp.agentmemory = agentmemory;
+next.mcp = mcp;
+
+mkdirSync(dirname(configPath), { recursive: true });
+writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`);
+EOF
+
+  if [[ ${EUID} -eq 0 ]]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${OPENCODE_CONFIG_PATH}"
+  fi
+}
+
+install_env_file() {
+  local env_file old_umask
+
+  env_file="${AGENTMEMORY_DATA}/.env"
+  install -d -m 0700 "${AGENTMEMORY_DATA}"
+  if [[ ${EUID} -eq 0 ]]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${AGENTMEMORY_DATA}"
+  fi
+  if [[ -f "${env_file}" ]]; then
+    chmod 0600 "${env_file}"
+    return
+  fi
+
+  old_umask="$(umask)"
+  umask 077
+  cat >"${env_file}" <<'EOF'
+# agentmemory configuration
+# Uncomment and set as needed
+
+# ANTHROPIC_API_KEY=sk-ant-...
+# GEMINI_API_KEY=...
+# OPENROUTER_API_KEY=...
+
+EMBEDDING_PROVIDER=local
+AGENTMEMORY_TOOLS=all
+# III_REST_PORT=3111
+EOF
+  umask "${old_umask}"
+
+  if [[ ${EUID} -eq 0 ]]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${env_file}"
+  fi
+  chmod 0600 "${env_file}"
+}
+
+install_systemd_unit() {
+  cat >"${SYSTEMD_UNIT_PATH}" <<EOF
+[Unit]
+Description=AgentMemory - Persistent memory for AI coding agents
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+Group=${SERVICE_USER}
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${NODE_BIN} --max-old-space-size=256 ${INSTALL_DIR}/dist/cli.mjs
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+EnvironmentFile=-${AGENTMEMORY_DATA}/.env
+Environment=NODE_ENV=production
+Environment=HOME=${SERVICE_HOME}
+Environment=PATH=${NODE_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=${AGENTMEMORY_DATA} ${INSTALL_DIR}
+ProtectHome=false
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable "${SERVICE_NAME}.service" >/dev/null
+  if systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+    systemctl restart "${SERVICE_NAME}.service"
+  else
+    systemctl start "${SERVICE_NAME}.service"
+  fi
+}
+
+main() {
+  if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
+    usage
+    exit 0
+  fi
+
+  [[ -x "${NODE_BIN}" ]] || error "Expected Node.js at ${NODE_BIN}"
+  [[ -x "${NPM_BIN}" ]] || error "Expected npm at ${NPM_BIN}"
+  [[ -f "${PLUGIN_SOURCE}" ]] || error "Missing ${PLUGIN_SOURCE}"
+
+  if [[ ${EUID} -ne 0 ]]; then
+    ensure_writable_install_dir
+  fi
+
+  info "Using Node $("${NODE_BIN}" -v)"
+  info "Installing dependencies from current checkout"
+  run_as_build_user "${NPM_BIN}" --prefix "${SOURCE_DIR}" ci
+
+  info "Building current checkout"
+  run_as_build_user "${NPM_BIN}" --prefix "${SOURCE_DIR}" run build
+
+  info "Syncing runtime files into ${INSTALL_DIR}"
+  sync_runtime
+
+  info "Installing OpenCode plugin to ${OPENCODE_PLUGIN_PATH}"
+  install_opencode_plugin
+
+  info "Merging OpenCode config at ${OPENCODE_CONFIG_PATH}"
+  merge_opencode_config
+
+  if [[ ${EUID} -eq 0 ]]; then
+    info "Installing systemd service ${SERVICE_NAME}"
+    install_env_file
+    install_systemd_unit
+  else
+    info "Skipping systemd changes in non-root mode"
+  fi
+
+  info "Deployment finished"
+}
+
+main "$@"

@@ -1,19 +1,11 @@
 #!/usr/bin/env node
 
 import { InMemoryKV } from "./in-memory-kv.js";
+import { getMcp, postMcp } from "./rest-client.js";
 import { createStdioTransport } from "./transport.js";
-import { getVisibleTools } from "./tools-registry.js";
 import { getStandalonePersistPath } from "../config.js";
 import { VERSION } from "../version.js";
 import { generateId } from "../state/schema.js";
-
-const IMPLEMENTED_TOOLS = new Set([
-  "memory_save",
-  "memory_recall",
-  "memory_sessions",
-  "memory_export",
-  "memory_audit",
-]);
 
 const SERVER_INFO = {
   name: "agentmemory",
@@ -21,12 +13,22 @@ const SERVER_INFO = {
   protocolVersion: "2024-11-05",
 };
 
-const kv = new InMemoryKV(getStandalonePersistPath());
+function toMcpErrorResult(err: unknown) {
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    ],
+    isError: true,
+  };
+}
 
 export async function handleToolCall(
   toolName: string,
   args: Record<string, unknown>,
-  kvInstance: InMemoryKV = kv,
+  kvInstance: InMemoryKV = new InMemoryKV(getStandalonePersistPath()),
 ): Promise<{ content: Array<{ type: string; text: string }> }> {
   switch (toolName) {
     case "memory_save": {
@@ -128,6 +130,8 @@ const transport = createStdioTransport(async (method, params) => {
         protocolVersion: SERVER_INFO.protocolVersion,
         capabilities: {
           tools: { listChanged: false },
+          resources: { listChanged: false },
+          prompts: { listChanged: false },
         },
         serverInfo: {
           name: SERVER_INFO.name,
@@ -139,27 +143,52 @@ const transport = createStdioTransport(async (method, params) => {
       return {};
 
     case "tools/list":
-      return {
-        tools: getVisibleTools().filter((t) => IMPLEMENTED_TOOLS.has(t.name)),
-      };
+      try {
+        return await getMcp("/agentmemory/mcp/tools");
+      } catch (err) {
+        return toMcpErrorResult(err);
+      }
 
     case "tools/call": {
       const toolName = params.name as string;
       const toolArgs = (params.arguments as Record<string, unknown>) || {};
       try {
-        return await handleToolCall(toolName, toolArgs);
+        return await postMcp("/agentmemory/mcp/call", {
+          name: toolName,
+          arguments: toolArgs,
+        });
       } catch (err) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          ],
-          isError: true,
-        };
+        return toMcpErrorResult(err);
       }
     }
+
+    case "resources/list":
+      try {
+        return await getMcp("/agentmemory/mcp/resources");
+      } catch (err) {
+        return toMcpErrorResult(err);
+      }
+
+    case "resources/read":
+      try {
+        return await postMcp("/agentmemory/mcp/resources/read", params);
+      } catch (err) {
+        return toMcpErrorResult(err);
+      }
+
+    case "prompts/list":
+      try {
+        return await getMcp("/agentmemory/mcp/prompts");
+      } catch (err) {
+        return toMcpErrorResult(err);
+      }
+
+    case "prompts/get":
+      try {
+        return await postMcp("/agentmemory/mcp/prompts/get", params);
+      } catch (err) {
+        return toMcpErrorResult(err);
+      }
 
     default:
       throw new Error(`Unknown method: ${method}`);
@@ -170,12 +199,3 @@ process.stderr.write(
   `[agentmemory-mcp] Standalone MCP server v${SERVER_INFO.version} starting...\n`,
 );
 transport.start();
-
-process.on("SIGINT", () => {
-  kv.persist();
-  process.exit(0);
-});
-process.on("SIGTERM", () => {
-  kv.persist();
-  process.exit(0);
-});
