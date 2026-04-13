@@ -211,6 +211,13 @@ export function registerApiTriggers(
           endedAt: new Date().toISOString(),
           status: "completed",
         });
+
+        // Fire-and-forget: crystallize session observations into actions + lessons
+        sdk
+          .trigger("mem::session-crystallize", {
+            sessionId: req.body.sessionId,
+          })
+          .catch(() => {});
       }
       return { status_code: 200, body: { success: true } };
     },
@@ -1847,6 +1854,14 @@ export function registerApiTriggers(
     return { status_code: 200, body: result };
   });
   sdk.registerTrigger({ type: "http", function_id: "api::auto-crystallize", config: { api_path: "/agentmemory/crystals/auto", http_method: "POST" } });
+
+  sdk.registerFunction({ id: "api::session-crystallize" }, async (req: ApiRequest<{ sessionId: string }>) => {
+    const denied = checkAuth(req, secret);
+    if (denied) return denied;
+    const result = await sdk.trigger("mem::session-crystallize", req.body);
+    return { status_code: 200, body: result };
+  });
+  sdk.registerTrigger({ type: "http", function_id: "api::session-crystallize", config: { api_path: "/agentmemory/session/crystallize", http_method: "POST" } });
 
   sdk.registerFunction({ id: "api::diagnose" }, async (req: ApiRequest) => {
     const denied = checkAuth(req, secret);

@@ -6,6 +6,8 @@ import type {
   SessionSummary,
   ContextBlock,
   ProjectProfile,
+  Crystal,
+  Lesson,
 } from "../types.js";
 import { KV } from "../state/schema.js";
 import { StateKV } from "../state/kv.js";
@@ -107,6 +109,65 @@ export function registerContextFunction(
         } else {
           sessionsNeedingObs.push(i);
         }
+      }
+
+      // --- Crystals: compact digests of completed work ---
+      const allCrystals = await kv.list<Crystal>(KV.crystals).catch(() => []);
+      const projectCrystals = allCrystals
+        .filter((c) => c.project === data.project)
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .slice(0, 5);
+
+      for (const crystal of projectCrystals) {
+        const parts = [
+          `## ${crystal.narrative}`,
+          crystal.keyOutcomes.length > 0
+            ? `Outcomes: ${crystal.keyOutcomes.join("; ")}`
+            : "",
+          crystal.filesAffected.length > 0
+            ? `Files: ${crystal.filesAffected.join(", ")}`
+            : "",
+        ].filter(Boolean);
+        const content = parts.join("\n");
+        blocks.push({
+          type: "memory",
+          content,
+          tokens: estimateTokens(content),
+          recency: new Date(crystal.createdAt).getTime(),
+        });
+      }
+
+      // --- Lessons: high-confidence insights from past work ---
+      const allLessons = await kv.list<Lesson>(KV.lessons).catch(() => []);
+      const projectLessons = allLessons
+        .filter(
+          (l) =>
+            !l.deleted && l.confidence >= 0.4 && l.project === data.project,
+        )
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 10);
+
+      if (projectLessons.length > 0) {
+        const items = projectLessons
+          .map(
+            (l) =>
+              `- ${l.content}${l.context ? ` (${l.context})` : ""}`,
+          )
+          .join("\n");
+        const content = `## Lessons Learned\n${items}`;
+        blocks.push({
+          type: "memory",
+          content,
+          tokens: estimateTokens(content),
+          recency: Math.max(
+            ...projectLessons.map((l) =>
+              new Date(l.updatedAt || l.createdAt).getTime(),
+            ),
+          ),
+        });
       }
 
       const obsResults = await Promise.all(

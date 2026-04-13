@@ -1032,8 +1032,12 @@
       var totalCalls = fMetrics.reduce(function(a, m) { return a + (m.totalCalls || 0); }, 0);
       var totalObs = d.sessions.reduce(function(a, s) { return a + (s.observationCount || 0); }, 0);
       var tokenBudget = parseInt(new URLSearchParams(window.location.search).get('tokenBudget') || '2000', 10) || 2000;
-      var estFull = totalObs * 80;
-      var estInjected = d.sessions.length * tokenBudget;
+      // estFull: without agentmemory, relevant observations would need raw inclusion (~450 tokens avg stored size)
+      var estFull = totalObs * 450;
+      // estInjected: each active session injects context per prompt (~1 prompt per 5 tool calls)
+      var activeSessions = d.sessions.filter(function(s) { return (s.observationCount || 0) > 1; });
+      var estPrompts = activeSessions.reduce(function(a, s) { return a + Math.max(1, Math.ceil((s.observationCount || 0) / 5)); }, 0);
+      var estInjected = estPrompts * tokenBudget;
       var savings = estFull > 0 ? Math.round((1 - estInjected / Math.max(estFull, 1)) * 100) : 0;
       if (savings < 0) savings = 0;
       var tokensSaved = Math.max(0, estFull - estInjected);
@@ -2933,6 +2937,11 @@
         });
       }
     }
+
+    var debouncedDashboardReload = debounce(function() {
+      state.dashboard.loaded = false;
+      loadDashboard();
+    }, 2000);
 
     function routeWsMessage(msg) {
       if (state.activeTab === 'timeline' && msg.observation) {

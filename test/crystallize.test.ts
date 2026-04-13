@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+if (!(globalThis as { crypto?: { randomUUID: () => string } }).crypto) {
+  (globalThis as { crypto?: { randomUUID: () => string } }).crypto = {
+    randomUUID: () => "12345678-1234-1234-1234-123456789abc",
+  };
+}
+
 vi.mock("iii-sdk", () => ({
   getContext: () => ({
     logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
