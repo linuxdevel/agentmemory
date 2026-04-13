@@ -786,6 +786,58 @@ export function registerApiTriggers(
   });
 
   sdk.registerFunction(
+    { id: "api::graph-build" },
+    async (req: ApiRequest): Promise<Response> => {
+      const authErr = checkAuth(req, secret);
+      if (authErr) return authErr;
+
+      const sessions = await kv.list<Session>(KV.sessions);
+      const allObs: CompressedObservation[] = [];
+      for (const session of sessions) {
+        const obs = await kv.list<CompressedObservation>(
+          KV.observations(session.id),
+        );
+        allObs.push(...obs.filter((o) => o.title && o.importance >= 3));
+      }
+
+      if (allObs.length === 0) {
+        return { status_code: 200, body: { success: true, processed: 0, message: "No observations to process" } };
+      }
+
+      const batchSize = 20;
+      let processed = 0;
+      let totalNodes = 0;
+      let totalEdges = 0;
+
+      for (let i = 0; i < allObs.length; i += batchSize) {
+        const batch = allObs.slice(i, i + batchSize);
+        try {
+          const result = await sdk.trigger("mem::graph-extract", {
+            observations: batch,
+          }) as { success: boolean; nodesExtracted?: number; edgesExtracted?: number };
+          if (result.success) {
+            processed += batch.length;
+            totalNodes += result.nodesExtracted || 0;
+            totalEdges += result.edgesExtracted || 0;
+          }
+        } catch {
+          // continue with next batch
+        }
+      }
+
+      return {
+        status_code: 200,
+        body: { success: true, processed, totalNodes, totalEdges, batches: Math.ceil(allObs.length / batchSize) },
+      };
+    },
+  );
+  sdk.registerTrigger({
+    type: "http",
+    function_id: "api::graph-build",
+    config: { api_path: "/agentmemory/graph/build", http_method: "POST" },
+  });
+
+  sdk.registerFunction(
     { id: "api::consolidate-pipeline" },
     async (req: ApiRequest<{ tier?: string }>): Promise<Response> => {
       const authErr = checkAuth(req, secret);
