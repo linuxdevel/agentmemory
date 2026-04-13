@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
+
 .env
 .env.*
 !.env.example
@@ -12,4 +13,3 @@ dist/
 plugin/scripts/*.map
 plugin/scripts/*.d.mts
 data/
-docs/plans/
