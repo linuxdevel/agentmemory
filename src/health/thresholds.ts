@@ -56,10 +56,9 @@ export function evaluateHealth(
     degraded = true;
   }
 
+  const heapCapacity = snapshot.memory.heapLimit || snapshot.memory.heapTotal;
   const memPercent =
-    snapshot.memory.heapTotal > 0
-      ? (snapshot.memory.heapUsed / snapshot.memory.heapTotal) * 100
-      : 0;
+    heapCapacity > 0 ? (snapshot.memory.heapUsed / heapCapacity) * 100 : 0;
   if (memPercent > cfg.memoryCriticalPercent) {
     alerts.push(`memory_critical_${Math.round(memPercent)}%`);
     critical = true;

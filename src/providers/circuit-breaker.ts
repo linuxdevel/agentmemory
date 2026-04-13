@@ -15,6 +15,7 @@ export class CircuitBreaker {
   private failures = 0;
   private lastFailureAt: number | null = null;
   private openedAt: number | null = null;
+  private halfOpenProbeInFlight = false;
 
   private readonly failureThreshold: number;
   private readonly failureWindowMs: number;
@@ -29,7 +30,19 @@ export class CircuitBreaker {
     this.recoveryTimeoutMs = positiveFinite(opts?.recoveryTimeoutMs, 30_000);
   }
 
+  private expireFailures(now = Date.now()): void {
+    if (
+      this.state === "closed" &&
+      this.lastFailureAt &&
+      now - this.lastFailureAt > this.failureWindowMs
+    ) {
+      this.failures = 0;
+      this.lastFailureAt = null;
+    }
+  }
+
   get isAllowed(): boolean {
+    this.expireFailures();
     if (this.state === "closed") return true;
     if (this.state === "open") {
       if (
@@ -37,19 +50,22 @@ export class CircuitBreaker {
         Date.now() - this.openedAt >= this.recoveryTimeoutMs
       ) {
         this.state = "half-open";
+        this.halfOpenProbeInFlight = true;
         return true;
       }
       return false;
     }
-    return true;
+    return this.state === "half-open" ? !this.halfOpenProbeInFlight : true;
   }
 
   recordSuccess(): void {
+    this.expireFailures();
     if (this.state === "half-open") {
       this.state = "closed";
       this.failures = 0;
       this.lastFailureAt = null;
       this.openedAt = null;
+      this.halfOpenProbeInFlight = false;
     }
   }
 
@@ -58,20 +74,21 @@ export class CircuitBreaker {
     if (this.state === "half-open") {
       this.state = "open";
       this.openedAt = now;
+      this.halfOpenProbeInFlight = false;
       return;
     }
-    if (this.lastFailureAt && now - this.lastFailureAt > this.failureWindowMs) {
-      this.failures = 0;
-    }
+    this.expireFailures(now);
     this.failures += 1;
     this.lastFailureAt = now;
     if (this.failures >= this.failureThreshold) {
       this.state = "open";
       this.openedAt = now;
+      this.halfOpenProbeInFlight = false;
     }
   }
 
   getState(): CircuitBreakerState {
+    this.expireFailures();
     return {
       state: this.state,
       failures: this.failures,

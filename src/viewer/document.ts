@@ -10,9 +10,9 @@ import {
 function loadViewerTemplate(): string | null {
   const base = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    join(base, "..", "src", "viewer", "index.html"),
-    join(base, "..", "viewer", "index.html"),
     join(base, "viewer", "index.html"),
+    join(base, "..", "viewer", "index.html"),
+    join(base, "..", "src", "viewer", "index.html"),
   ];
   for (const path of candidates) {
     try {
