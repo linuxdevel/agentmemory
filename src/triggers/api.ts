@@ -1,5 +1,6 @@
 import type { ISdk, ApiRequest } from "iii-sdk";
-import type { Session, CompressedObservation, HookPayload } from "../types.js";
+import type { Session, CompressedObservation, HookPayload, Memory } from "../types.js";
+import { isGraphExtractionEnabled, getGraphBatchSize } from "../config.js";
 import { KV } from "../state/schema.js";
 import { StateKV } from "../state/kv.js";
 import { getLatestHealth } from "../health/monitor.js";
@@ -776,6 +777,59 @@ export function registerApiTriggers(
     type: "http",
     function_id: "api::graph-extract",
     config: { api_path: "/agentmemory/graph/extract", http_method: "POST" },
+  });
+
+  sdk.registerFunction(
+    { id: "api::graph-build" },
+    async (req: ApiRequest): Promise<Response> => {
+      const authErr = checkAuth(req, secret);
+      if (authErr) return authErr;
+      if (!isGraphExtractionEnabled()) {
+        return {
+          status_code: 400,
+          body: { success: false, error: "GRAPH_EXTRACTION_ENABLED is not true" },
+        };
+      }
+      try {
+        const memories = await kv.list<Memory>(KV.memories);
+        if (memories.length === 0) {
+          return { status_code: 200, body: { success: true, nodes: 0, edges: 0, message: "No memories to build from" } };
+        }
+        const batchSize = getGraphBatchSize();
+        let totalNodes = 0;
+        let totalEdges = 0;
+        for (let i = 0; i < memories.length; i += batchSize) {
+          const batch = memories.slice(i, i + batchSize);
+          const observations: CompressedObservation[] = batch.map((m) => ({
+            id: m.id,
+            sessionId: m.sessionIds?.[0] || "build",
+            timestamp: m.createdAt,
+            type: "discovery" as const,
+            title: m.title,
+            narrative: m.content,
+            facts: [m.content],
+            concepts: m.concepts,
+            files: m.files,
+            importance: m.strength,
+          }));
+          const result = await sdk.trigger("mem::graph-extract", { observations });
+          if (result && typeof result === "object") {
+            const r = result as { nodesAdded?: number; edgesAdded?: number };
+            totalNodes += r.nodesAdded || 0;
+            totalEdges += r.edgesAdded || 0;
+          }
+        }
+        return { status_code: 200, body: { success: true, nodes: totalNodes, edges: totalEdges } };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { status_code: 500, body: { success: false, error: msg } };
+      }
+    },
+  );
+  sdk.registerTrigger({
+    type: "http",
+    function_id: "api::graph-build",
+    config: { api_path: "/agentmemory/graph/build", http_method: "POST" },
   });
 
   sdk.registerFunction(
