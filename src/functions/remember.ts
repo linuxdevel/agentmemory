@@ -92,11 +92,11 @@ export function registerRememberFunction(sdk: ISdk, kv: StateKV): void {
           memory.forgetAfter = new Date(Date.now() + data.ttlDays * 86400000).toISOString();
         }
 
+        await kv.set(KV.memories, memory.id, memory);
         if (supersededMemory) {
           supersededMemory.isLatest = false;
           await kv.set(KV.memories, supersededMemory.id, supersededMemory);
         }
-        await kv.set(KV.memories, memory.id, memory);
 
         if (supersededId) {
           sdk.triggerVoid("mem::cascade-update", {

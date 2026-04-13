@@ -78,6 +78,19 @@ describe("CircuitBreaker", () => {
     expect(cb.getState().state).toBe("open");
   });
 
+  it("allows only one probe while half-open", () => {
+    const cb = new CircuitBreaker();
+    cb.recordFailure();
+    cb.recordFailure();
+    cb.recordFailure();
+
+    vi.advanceTimersByTime(30_000);
+
+    expect(cb.isAllowed).toBe(true);
+    expect(cb.getState().state).toBe("half-open");
+    expect(cb.isAllowed).toBe(false);
+  });
+
   it("records lastFailureAt timestamp", () => {
     const cb = new CircuitBreaker();
     vi.setSystemTime(new Date("2026-01-15T10:00:00Z"));
@@ -98,10 +111,32 @@ describe("CircuitBreaker", () => {
     );
   });
 
-  it("success in closed state is a no-op", () => {
+  it("does not clear in-window failures on success in closed state", () => {
     const cb = new CircuitBreaker();
+    cb.recordFailure();
     cb.recordSuccess();
     expect(cb.getState().state).toBe("closed");
+    expect(cb.getState().failures).toBe(1);
+  });
+
+  it("expires stale failures when reporting state", () => {
+    const cb = new CircuitBreaker();
+    cb.recordFailure();
+    vi.advanceTimersByTime(61_000);
+
+    expect(cb.getState().state).toBe("closed");
     expect(cb.getState().failures).toBe(0);
+    expect(cb.getState().lastFailureAt).toBeNull();
+  });
+
+  it("still opens after windowed failures separated by a success", () => {
+    const cb = new CircuitBreaker();
+    cb.recordFailure();
+    cb.recordSuccess();
+    cb.recordFailure();
+    cb.recordFailure();
+
+    expect(cb.getState().state).toBe("open");
+    expect(cb.isAllowed).toBe(false);
   });
 });

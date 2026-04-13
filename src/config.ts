@@ -10,6 +10,15 @@ import type {
   TeamConfig,
 } from "./types.js";
 
+const VALID_PROVIDERS = new Set<ProviderConfig["provider"]>([
+  "anthropic",
+  "gemini",
+  "openrouter",
+  "agent-sdk",
+  "minimax",
+  "copilot",
+]);
+
 function safeParseInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = parseInt(value, 10);
@@ -20,6 +29,7 @@ const DATA_DIR = join(homedir(), ".agentmemory");
 const ENV_FILE = join(DATA_DIR, ".env");
 
 function loadEnvFile(): Record<string, string> {
+  if (process.env["AGENTMEMORY_IGNORE_ENV_FILE"] === "true") return {};
   if (!existsSync(ENV_FILE)) return {};
   const content = readFileSync(ENV_FILE, "utf-8");
   const vars: Record<string, string> = {};
@@ -43,6 +53,57 @@ function loadEnvFile(): Record<string, string> {
 
 function detectProvider(env: Record<string, string>): ProviderConfig {
   const maxTokens = parseInt(env["MAX_TOKENS"] || "4096", 10);
+  const explicitProvider = env["PROVIDER"]?.trim() as
+    | ProviderConfig["provider"]
+    | undefined;
+
+  if (explicitProvider) {
+    if (!VALID_PROVIDERS.has(explicitProvider)) {
+      throw new Error(`Unsupported provider configured: ${explicitProvider}`);
+    }
+
+    switch (explicitProvider) {
+      case "copilot":
+        return {
+          provider: "copilot",
+          model: env["COPILOT_MODEL"] || "gpt-4.1",
+          maxTokens,
+          baseURL: env["COPILOT_BASE_URL"],
+        };
+      case "agent-sdk":
+        return {
+          provider: "agent-sdk",
+          model: env["AGENT_SDK_MODEL"] || "claude-sonnet-4-20250514",
+          maxTokens,
+        };
+      case "minimax":
+        return {
+          provider: "minimax",
+          model: env["MINIMAX_MODEL"] || "MiniMax-M2.7",
+          maxTokens,
+        };
+      case "anthropic":
+        return {
+          provider: "anthropic",
+          model: env["ANTHROPIC_MODEL"] || "claude-sonnet-4-20250514",
+          maxTokens,
+          baseURL: env["ANTHROPIC_BASE_URL"],
+        };
+      case "gemini":
+        return {
+          provider: "gemini",
+          model: env["GEMINI_MODEL"] || "gemini-2.0-flash",
+          maxTokens,
+        };
+      case "openrouter":
+        return {
+          provider: "openrouter",
+          model:
+            env["OPENROUTER_MODEL"] || "anthropic/claude-sonnet-4-20250514",
+          maxTokens,
+        };
+    }
+  }
 
   // MiniMax: Anthropic-compatible API, requires raw fetch to avoid SDK stainless headers
   if (env["MINIMAX_API_KEY"]) {
@@ -77,8 +138,8 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
   }
   return {
     provider: "agent-sdk",
-    model: "claude-sonnet-4-20250514",
-    maxTokens: 4096,
+    model: env["AGENT_SDK_MODEL"] || "claude-sonnet-4-20250514",
+    maxTokens,
   };
 }
 
@@ -209,14 +270,6 @@ export function getStandalonePersistPath(): string {
     join(homedir(), ".agentmemory", "standalone.json")
   );
 }
-
-const VALID_PROVIDERS = new Set([
-  "anthropic",
-  "gemini",
-  "openrouter",
-  "agent-sdk",
-  "minimax",
-]);
 
 export function loadFallbackConfig(): FallbackConfig {
   const env = getMergedEnv();

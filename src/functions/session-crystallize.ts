@@ -65,6 +65,13 @@ function parseActions(response: string): ExtractedAction[] {
   }
 }
 
+function isSameObservationSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((id, index) => id === right[index]);
+}
+
 export function registerSessionCrystallizeFunction(
   sdk: ISdk,
   kv: StateKV,
@@ -146,10 +153,27 @@ export function registerSessionCrystallizeFunction(
       }
 
       // Step 2: Create actions in KV and mark as done
+      const existingActions = await kv.list<Action>(KV.actions);
       const actionIds: string[] = [];
       const now = new Date().toISOString();
 
       for (const ea of extractedActions) {
+        const existingAction = existingActions.find(
+          (action) =>
+            action.createdBy === "session-crystallize" &&
+            action.project === session.project &&
+            action.result === `Completed during session ${sessionId}` &&
+            isSameObservationSet(
+              action.sourceObservationIds || [],
+              ea.observationIds,
+            ),
+        );
+
+        if (existingAction) {
+          actionIds.push(existingAction.id);
+          continue;
+        }
+
         const action: Action = {
           id: generateId("act"),
           title: ea.title,

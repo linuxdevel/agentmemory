@@ -23,4 +23,22 @@ describe("viewer document security", () => {
     expect(rendered.html).not.toContain("onmouseover=");
     expect(rendered.html).not.toContain("onmouseout=");
   });
+
+  it("loads the current viewer template with scheduled dashboard refreshes", () => {
+    const rendered = renderViewerDocument();
+    expect(rendered.found).toBe(true);
+    if (!rendered.found) return;
+
+    expect(rendered.html).toContain("scheduleDashboardRefresh(250)");
+    expect(rendered.html).toContain("dashboard-stats");
+  });
+
+  it("renders heap gauge against heapLimit when available", () => {
+    const rendered = renderViewerDocument();
+    expect(rendered.found).toBe(true);
+    if (!rendered.found) return;
+
+    expect(rendered.html).toContain("snap.memory.heapLimit || snap.memory.heapTotal || 0");
+    expect(rendered.html).toContain("gauge-value\">' + heapUsed + ' / ' + heapMax + ' MB");
+  });
 });

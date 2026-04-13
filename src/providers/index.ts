@@ -5,6 +5,7 @@ import type {
 } from "../types.js";
 import { AgentSDKProvider } from "./agent-sdk.js";
 import { AnthropicProvider } from "./anthropic.js";
+import { CopilotProvider } from "./copilot.js";
 import { MinimaxProvider } from "./minimax.js";
 import { OpenRouterProvider } from "./openrouter.js";
 import { ResilientProvider } from "./resilient.js";
@@ -58,6 +59,8 @@ export function createFallbackProvider(
 
 function createBaseProvider(config: ProviderConfig): MemoryProvider {
   switch (config.provider) {
+    case "copilot":
+      return new CopilotProvider();
     case "minimax":
       return new MinimaxProvider(
         requireEnvVar("MINIMAX_API_KEY"),

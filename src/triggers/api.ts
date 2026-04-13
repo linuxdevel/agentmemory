@@ -1,5 +1,6 @@
 import type { ISdk, ApiRequest } from "iii-sdk";
-import type { Session, CompressedObservation, HookPayload } from "../types.js";
+import type { Session, CompressedObservation, HookPayload, Memory } from "../types.js";
+import { isGraphExtractionEnabled, getGraphBatchSize } from "../config.js";
 import { KV } from "../state/schema.js";
 import { StateKV } from "../state/kv.js";
 import { getLatestHealth } from "../health/monitor.js";
@@ -790,45 +791,46 @@ export function registerApiTriggers(
     async (req: ApiRequest): Promise<Response> => {
       const authErr = checkAuth(req, secret);
       if (authErr) return authErr;
-
-      const sessions = await kv.list<Session>(KV.sessions);
-      const allObs: CompressedObservation[] = [];
-      for (const session of sessions) {
-        const obs = await kv.list<CompressedObservation>(
-          KV.observations(session.id),
-        );
-        allObs.push(...obs.filter((o) => o.title && o.importance >= 3));
+      if (!isGraphExtractionEnabled()) {
+        return {
+          status_code: 400,
+          body: { success: false, error: "GRAPH_EXTRACTION_ENABLED is not true" },
+        };
       }
-
-      if (allObs.length === 0) {
-        return { status_code: 200, body: { success: true, processed: 0, message: "No observations to process" } };
-      }
-
-      const batchSize = 20;
-      let processed = 0;
-      let totalNodes = 0;
-      let totalEdges = 0;
-
-      for (let i = 0; i < allObs.length; i += batchSize) {
-        const batch = allObs.slice(i, i + batchSize);
-        try {
-          const result = await sdk.trigger("mem::graph-extract", {
-            observations: batch,
-          }) as { success: boolean; nodesExtracted?: number; edgesExtracted?: number };
-          if (result.success) {
-            processed += batch.length;
-            totalNodes += result.nodesExtracted || 0;
-            totalEdges += result.edgesExtracted || 0;
-          }
-        } catch {
-          // continue with next batch
+      try {
+        const memories = await kv.list<Memory>(KV.memories);
+        if (memories.length === 0) {
+          return { status_code: 200, body: { success: true, nodes: 0, edges: 0, message: "No memories to build from" } };
         }
+        const batchSize = getGraphBatchSize();
+        let totalNodes = 0;
+        let totalEdges = 0;
+        for (let i = 0; i < memories.length; i += batchSize) {
+          const batch = memories.slice(i, i + batchSize);
+          const observations: CompressedObservation[] = batch.map((m) => ({
+            id: m.id,
+            sessionId: m.sessionIds?.[0] || "build",
+            timestamp: m.createdAt,
+            type: "discovery" as const,
+            title: m.title,
+            narrative: m.content,
+            facts: [m.content],
+            concepts: m.concepts,
+            files: m.files,
+            importance: m.strength,
+          }));
+          const result = await sdk.trigger("mem::graph-extract", { observations });
+          if (result && typeof result === "object") {
+            const r = result as { nodesAdded?: number; edgesAdded?: number };
+            totalNodes += r.nodesAdded || 0;
+            totalEdges += r.edgesAdded || 0;
+          }
+        }
+        return { status_code: 200, body: { success: true, nodes: totalNodes, edges: totalEdges } };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { status_code: 500, body: { success: false, error: msg } };
       }
-
-      return {
-        status_code: 200,
-        body: { success: true, processed, totalNodes, totalEdges, batches: Math.ceil(allObs.length / batchSize) },
-      };
     },
   );
   sdk.registerTrigger({
