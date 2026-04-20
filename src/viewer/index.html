@@ -899,6 +899,24 @@
         t = setTimeout(function() { fn.apply(ctx, args); }, ms);
       };
     }
+    function captureInputState(inputId) {
+      var input = document.getElementById(inputId);
+      if (!input || document.activeElement !== input) return null;
+      return {
+        id: inputId,
+        start: typeof input.selectionStart === 'number' ? input.selectionStart : null,
+        end: typeof input.selectionEnd === 'number' ? input.selectionEnd : null
+      };
+    }
+    function restoreInputState(snapshot) {
+      if (!snapshot) return;
+      var input = document.getElementById(snapshot.id);
+      if (!input) return;
+      input.focus();
+      if (snapshot.start !== null && snapshot.end !== null && typeof input.setSelectionRange === 'function') {
+        input.setSelectionRange(snapshot.start, snapshot.end);
+      }
+    }
 
     async function api(path, opts) {
       try {
@@ -1969,6 +1987,8 @@
 
     function renderMemories() {
       var el = document.getElementById('view-memories');
+      var memSearchSnapshot = captureInputState('mem-search');
+      var memTypeFilterSnapshot = captureInputState('mem-type-filter');
       var items = state.memories.items;
       var search = state.memories.search.toLowerCase();
       var typeFilter = state.memories.typeFilter;
@@ -2025,6 +2045,8 @@
       }
 
       el.innerHTML = html;
+      restoreInputState(memSearchSnapshot);
+      restoreInputState(memTypeFilterSnapshot);
 
       var searchInput = document.getElementById('mem-search');
       if (searchInput) {
@@ -2516,6 +2538,7 @@
 
     function renderLessons() {
       var el = document.getElementById('view-lessons');
+      var lessonsSearchSnapshot = captureInputState('lessons-search');
       var items = state.lessons.items;
       var search = state.lessons.search.toLowerCase();
 
@@ -2550,6 +2573,7 @@
       }
 
       el.innerHTML = html;
+      restoreInputState(lessonsSearchSnapshot);
     }
 
     async function loadActions() {
@@ -2564,6 +2588,8 @@
 
     function renderActions() {
       var el = document.getElementById('view-actions');
+      var actionsSearchSnapshot = captureInputState('actions-search');
+      var actionsStatusSnapshot = captureInputState('actions-status-filter');
       var items = state.actions.items;
       var search = state.actions.search.toLowerCase();
       var statusFilter = state.actions.statusFilter;
@@ -2612,6 +2638,8 @@
       }
 
       el.innerHTML = html;
+      restoreInputState(actionsSearchSnapshot);
+      restoreInputState(actionsStatusSnapshot);
     }
 
     async function loadCrystals() {
@@ -2631,6 +2659,7 @@
 
     function renderCrystals() {
       var el = document.getElementById('view-crystals');
+      var crystalsSearchSnapshot = captureInputState('crystals-search');
       var items = state.crystals.items;
       var search = state.crystals.search.toLowerCase();
 
@@ -2688,6 +2717,7 @@
       }
 
       el.innerHTML = html;
+      restoreInputState(crystalsSearchSnapshot);
     }
 
     async function loadAudit() {

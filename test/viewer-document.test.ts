@@ -38,4 +38,21 @@ describe("viewer document loading", () => {
     expect(rendered.html).toContain("dashboard-stats");
     expect(rendered.html).not.toContain("old-viewer");
   });
+
+  it("includes focus retention hooks for searchable viewer inputs", async () => {
+    const { renderViewerDocument } = await import("../src/viewer/document.js");
+    const rendered = renderViewerDocument();
+
+    expect(rendered.found).toBe(true);
+    if (!rendered.found) return;
+
+    expect(rendered.html).toContain("function captureInputState(inputId)");
+    expect(rendered.html).toContain("function restoreInputState(snapshot)");
+    expect(rendered.html).toContain("selectionStart");
+    expect(rendered.html).toContain("setSelectionRange");
+    expect(rendered.html).toContain("captureInputState('mem-search')");
+    expect(rendered.html).toContain("captureInputState('lessons-search')");
+    expect(rendered.html).toContain("captureInputState('actions-search')");
+    expect(rendered.html).toContain("captureInputState('crystals-search')");
+  });
 });
