@@ -55,4 +55,19 @@ describe("viewer document loading", () => {
     expect(rendered.html).toContain("captureInputState('actions-search')");
     expect(rendered.html).toContain("captureInputState('crystals-search')");
   });
+
+  it("includes audit array fallback and shared toolbar markup", async () => {
+    const { renderViewerDocument } = await import("../src/viewer/document.js");
+    const rendered = renderViewerDocument();
+
+    expect(rendered.found).toBe(true);
+    if (!rendered.found) return;
+
+    expect(rendered.html).toContain("Array.isArray(result) ? result : ((result && result.entries) || [])");
+    expect(rendered.html).toContain("var html = '<div class=\"toolbar\">';");
+    expect(rendered.html).toContain("<input id=\"lessons-search\" class=\"search-input\"");
+    expect(rendered.html).toContain("<input id=\"actions-search\" class=\"search-input\"");
+    expect(rendered.html).toContain("<input id=\"crystals-search\" class=\"search-input\"");
+    expect(rendered.html).toContain("<select id=\"audit-op-filter\"");
+  });
 });
