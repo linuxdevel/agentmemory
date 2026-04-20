@@ -307,7 +307,7 @@
       align-items: center;
       flex-wrap: wrap;
     }
-    .toolbar input, .toolbar select {
+    .toolbar input, .toolbar .search-input, .toolbar select {
       background: var(--bg);
       border: 1px solid var(--border);
       color: var(--ink);
@@ -316,11 +316,11 @@
       outline: none;
       font-family: var(--font-ui);
     }
-    .toolbar input:focus, .toolbar select:focus {
+    .toolbar input:focus, .toolbar .search-input:focus, .toolbar select:focus {
       border-color: var(--ink);
       box-shadow: 2px 2px 0px 0px var(--border);
     }
-    .toolbar input { flex: 1; min-width: 200px; }
+    .toolbar input, .toolbar .search-input { flex: 1; min-width: 200px; }
 
     .btn {
       background: var(--bg);

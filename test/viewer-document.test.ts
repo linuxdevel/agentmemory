@@ -70,4 +70,15 @@ describe("viewer document loading", () => {
     expect(rendered.html).toContain("<input id=\"crystals-search\" class=\"search-input\"");
     expect(rendered.html).toContain("<select id=\"audit-op-filter\"");
   });
+
+  it("styles search-input fields with the shared toolbar theme", async () => {
+    const { renderViewerDocument } = await import("../src/viewer/document.js");
+    const rendered = renderViewerDocument();
+
+    expect(rendered.found).toBe(true);
+    if (!rendered.found) return;
+
+    expect(rendered.html).toContain(".toolbar input, .toolbar .search-input, .toolbar select {");
+    expect(rendered.html).toContain(".toolbar input:focus, .toolbar .search-input:focus, .toolbar select:focus {");
+  });
 });
