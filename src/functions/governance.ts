@@ -1,6 +1,6 @@
 import type { ISdk } from "iii-sdk";
 import { getContext } from "iii-sdk";
-import type { Memory, GovernanceFilter, AuditEntry } from "../types.js";
+import type { Memory, GovernanceFilter, AuditEntry, Lesson } from "../types.js";
 import { KV } from "../state/schema.js";
 import type { StateKV } from "../state/kv.js";
 import { recordAudit, queryAudit } from "./audit.js";
@@ -25,6 +25,13 @@ export function registerGovernanceFunction(sdk: ISdk, kv: StateKV): void {
         if (mem) {
           await kv.delete(KV.memories, id);
           await deleteAccessLog(kv, id);
+          deleted++;
+          continue;
+        }
+
+        const lesson = await kv.get<Lesson>(KV.lessons, id);
+        if (lesson) {
+          await kv.delete(KV.lessons, id);
           deleted++;
         }
       }

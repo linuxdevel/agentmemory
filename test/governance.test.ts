@@ -7,7 +7,7 @@ vi.mock("iii-sdk", () => ({
 }));
 
 import { registerGovernanceFunction } from "../src/functions/governance.js";
-import type { Memory, AuditEntry } from "../src/types.js";
+import type { Memory, AuditEntry, Lesson } from "../src/types.js";
 
 function mockKV() {
   const store = new Map<string, Map<string, unknown>>();
@@ -62,6 +62,23 @@ function makeMemory(id: string, type: Memory["type"] = "pattern"): Memory {
   };
 }
 
+function makeLesson(id: string): Lesson {
+  return {
+    id,
+    content: `Lesson ${id}`,
+    context: "Governance delete regression coverage",
+    confidence: 0.8,
+    reinforcements: 0,
+    source: "manual",
+    sourceIds: [],
+    project: "/test",
+    tags: ["governance"],
+    createdAt: "2026-02-01T00:00:00Z",
+    updatedAt: "2026-02-01T00:00:00Z",
+    decayRate: 0.05,
+  };
+}
+
 describe("Governance Functions", () => {
   let sdk: ReturnType<typeof mockSdk>;
   let kv: ReturnType<typeof mockKV>;
@@ -101,6 +118,22 @@ describe("Governance Functions", () => {
 
     const remaining = await kv.list("mem:memories");
     expect(remaining.length).toBe(3);
+  });
+
+  it("governance-delete removes specified lessons", async () => {
+    await kv.set("mem:lessons", "lsn_1", makeLesson("lsn_1"));
+
+    const result = (await sdk.trigger("mem::governance-delete", {
+      memoryIds: ["lsn_1"],
+      reason: "cleanup",
+    })) as { success: boolean; deleted: number; total: number };
+
+    expect(result.success).toBe(true);
+    expect(result.deleted).toBe(1);
+    expect(result.total).toBe(1);
+
+    const remaining = await kv.list("mem:lessons");
+    expect(remaining.length).toBe(0);
   });
 
   it("governance-bulk deletes by type filter", async () => {
