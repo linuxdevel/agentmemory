@@ -81,4 +81,15 @@ describe("viewer document loading", () => {
     expect(rendered.html).toContain(".toolbar input, .toolbar .search-input, .toolbar select {");
     expect(rendered.html).toContain(".toolbar input:focus, .toolbar .search-input:focus, .toolbar select:focus {");
   });
+
+  it("reads dashboard graph totals from graph-stats total keys", async () => {
+    const { renderViewerDocument } = await import("../src/viewer/document.js");
+    const rendered = renderViewerDocument();
+
+    expect(rendered.found).toBe(true);
+    if (!rendered.found) return;
+
+    expect(rendered.html).toContain("var nodeCount = (gs.totalNodes !== undefined) ? gs.totalNodes : ((gs.nodes !== undefined) ? gs.nodes : (gs.nodeCount || 0));");
+    expect(rendered.html).toContain("var edgeCount = (gs.totalEdges !== undefined) ? gs.totalEdges : ((gs.edges !== undefined) ? gs.edges : (gs.edgeCount || 0));");
+  });
 });

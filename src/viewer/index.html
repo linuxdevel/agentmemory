@@ -1040,8 +1040,8 @@
       var dotClass = healthStatus === 'healthy' ? 'healthy' : healthStatus === 'degraded' ? 'degraded' : healthStatus === 'critical' ? 'critical' : '';
       var activeSessionCount = d.sessions.filter(function(s) { return s.status === 'active'; }).length;
       var gs = d.graphStats || {};
-      var nodeCount = (gs.nodes !== undefined) ? gs.nodes : (gs.nodeCount || 0);
-      var edgeCount = (gs.edges !== undefined) ? gs.edges : (gs.edgeCount || 0);
+      var nodeCount = (gs.totalNodes !== undefined) ? gs.totalNodes : ((gs.nodes !== undefined) ? gs.nodes : (gs.nodeCount || 0));
+      var edgeCount = (gs.totalEdges !== undefined) ? gs.totalEdges : ((gs.edges !== undefined) ? gs.edges : (gs.edgeCount || 0));
       var fMetrics = h.functionMetrics || [];
       var cb = h.circuitBreaker || null;
       var workers = snap.workers || [];
@@ -1391,8 +1391,8 @@
       var sb = document.getElementById('graph-sidebar');
       if (!sb) return;
       var gs = state.graph.stats || {};
-      var nodeCount = gs.nodes !== undefined ? gs.nodes : (gs.nodeCount || state.graph.nodes.length);
-      var edgeCount = gs.edges !== undefined ? gs.edges : (gs.edgeCount || state.graph.edges.length);
+      var nodeCount = gs.totalNodes !== undefined ? gs.totalNodes : (gs.nodes !== undefined ? gs.nodes : (gs.nodeCount || state.graph.nodes.length));
+      var edgeCount = gs.totalEdges !== undefined ? gs.totalEdges : (gs.edges !== undefined ? gs.edges : (gs.edgeCount || state.graph.edges.length));
 
       var html = '<input type="text" class="graph-search" id="graph-search" placeholder="Search nodes...">';
 
