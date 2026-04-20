@@ -20,6 +20,8 @@ describe("viewer document security", () => {
     if (!rendered.found) return;
 
     expect(rendered.html).not.toContain("onclick=");
+    expect(rendered.html).not.toContain("oninput=");
+    expect(rendered.html).not.toContain("onchange=");
     expect(rendered.html).not.toContain("onmouseover=");
     expect(rendered.html).not.toContain("onmouseout=");
   });
