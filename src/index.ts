@@ -343,7 +343,10 @@ async function main() {
     dedupMap.stop();
     indexPersistence.stop();
     await new Promise<void>((resolve) => viewerServer.close(() => resolve()));
-    await indexPersistence.save().catch((err) => {
+    await Promise.race([
+      indexPersistence.save(),
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error("save timeout")), 3000)),
+    ]).catch((err) => {
       console.warn(`[agentmemory] Failed to save index on shutdown:`, err);
     });
     await sdk.shutdown();
