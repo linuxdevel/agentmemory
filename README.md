@@ -765,6 +765,9 @@ Create `~/.agentmemory/.env`:
 # USER_ID=
 # TEAM_MODE=private
 
+# Session auto-cleanup threshold (hours of inactivity)
+# AGENTMEMORY_SESSION_IDLE_HOURS=2
+
 # Tool visibility: "core" (7 tools) or "all" (43 tools)
 # AGENTMEMORY_TOOLS=core
 ```
