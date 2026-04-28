@@ -174,15 +174,30 @@ export function registerApiTriggers(
       const authErr = checkAuth(req, secret);
       if (authErr) return authErr;
       const { sessionId, project, cwd } = req.body;
-      const session: Session = {
-        id: sessionId,
-        project,
-        cwd,
-        startedAt: new Date().toISOString(),
-        status: "active",
-        observationCount: 0,
-      };
+
+      const existing = await kv.get<Session>(KV.sessions, sessionId);
+      const nowIso = new Date().toISOString();
+
+      const session: Session = existing
+        ? {
+            ...existing,
+            project,
+            cwd,
+            status: "active",
+            endedAt: undefined,
+            resumeCount: (existing.resumeCount ?? 0) + 1,
+          }
+        : {
+            id: sessionId,
+            project,
+            cwd,
+            startedAt: nowIso,
+            status: "active",
+            observationCount: 0,
+          };
+
       await kv.set(KV.sessions, sessionId, session);
+
       const contextResult = await sdk.trigger<
         { sessionId: string; project: string },
         { context: string }

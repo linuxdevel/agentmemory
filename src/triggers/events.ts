@@ -7,14 +7,27 @@ export function registerEventTriggers(sdk: ISdk, kv: StateKV): void {
   sdk.registerFunction(
     { id: "event::session::started" },
     async (data: { sessionId: string; project: string; cwd: string }) => {
-      const session: Session = {
-        id: data.sessionId,
-        project: data.project,
-        cwd: data.cwd,
-        startedAt: new Date().toISOString(),
-        status: "active",
-        observationCount: 0,
-      };
+      const existing = await kv.get<Session>(KV.sessions, data.sessionId);
+      const nowIso = new Date().toISOString();
+
+      const session: Session = existing
+        ? {
+            ...existing,
+            project: data.project,
+            cwd: data.cwd,
+            status: "active",
+            endedAt: undefined,
+            resumeCount: (existing.resumeCount ?? 0) + 1,
+          }
+        : {
+            id: data.sessionId,
+            project: data.project,
+            cwd: data.cwd,
+            startedAt: nowIso,
+            status: "active",
+            observationCount: 0,
+          };
+
       await kv.set(KV.sessions, data.sessionId, session);
       const contextResult = await sdk.trigger<
         { sessionId: string; project: string },
