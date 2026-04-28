@@ -19,5 +19,5 @@ curl -fsS -X POST \
   "${AUTH[@]}" \
   -H "Content-Type: application/json" \
   -d "{\"categories\": [\"sessions\"]${DRY_RUN_FLAG}}" \
-  "${REST_URL}/agentmemory/heal"
+  "${REST_URL}/agentmemory/diagnostics/heal"
 echo
