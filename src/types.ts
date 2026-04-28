@@ -4,8 +4,10 @@ export interface Session {
   cwd: string;
   startedAt: string;
   endedAt?: string;
+  lastObservationAt?: string;
   status: "active" | "completed" | "abandoned";
   observationCount: number;
+  resumeCount?: number;
   model?: string;
   tags?: string[];
 }
