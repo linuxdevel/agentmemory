@@ -30,6 +30,13 @@ const ALL_CATEGORIES = [
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
+function getSessionIdleMs(): number {
+  const raw = process.env["AGENTMEMORY_SESSION_IDLE_HOURS"];
+  const hours = raw ? Number(raw) : NaN;
+  const valid = Number.isFinite(hours) && hours > 0 ? hours : 2;
+  return valid * 60 * 60 * 1000;
+}
+
 export function registerDiagnosticsFunction(sdk: ISdk, kv: StateKV): void {
   sdk.registerFunction(
     { id: "mem::diagnose" },
@@ -277,19 +284,21 @@ export function registerDiagnosticsFunction(sdk: ISdk, kv: StateKV): void {
 
       if (categories.includes("sessions")) {
         const sessions = await kv.list<Session>(KV.sessions);
+        const idleMs = getSessionIdleMs();
         let sessionIssues = 0;
 
         for (const session of sessions) {
-          if (
-            session.status === "active" &&
-            now - new Date(session.startedAt).getTime() > TWENTY_FOUR_HOURS_MS
-          ) {
+          if (session.status !== "active") continue;
+          const lastSeenIso = session.lastObservationAt ?? session.startedAt;
+          const lastSeenMs = new Date(lastSeenIso).getTime();
+          if (Number.isFinite(lastSeenMs) && now - lastSeenMs > idleMs) {
+            const ageHours = Math.round((now - lastSeenMs) / (60 * 60 * 1000));
             checks.push({
               name: `abandoned-session:${session.id}`,
               category: "sessions",
               status: "warn",
-              message: `Session ${session.id} has been active for over 24 hours`,
-              fixable: false,
+              message: `Session ${session.id} has been idle for ~${ageHours}h (threshold ${(idleMs / (60 * 60 * 1000)).toFixed(0)}h)`,
+              fixable: true,
             });
             sessionIssues++;
           }

@@ -381,7 +381,7 @@ describe("Diagnostics Functions", () => {
       expect(check!.fixable).toBe(true);
     });
 
-    it("active session older than 24h produces warn", async () => {
+    it("active session older than threshold produces warn (fixable)", async () => {
       const session = makeSession({
         status: "active",
         startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
@@ -397,7 +397,41 @@ describe("Diagnostics Functions", () => {
       );
       expect(check).toBeDefined();
       expect(check!.status).toBe("warn");
-      expect(check!.fixable).toBe(false);
+      expect(check!.fixable).toBe(true);
+    });
+
+    it("flags an active session with no observation in over the idle threshold as fixable", async () => {
+      const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+      const session = makeSession({
+        id: "stale1",
+        startedAt: threeHoursAgo,
+        status: "active",
+        observationCount: 5,
+      });
+      // @ts-expect-error adding field for test
+      session.lastObservationAt = threeHoursAgo;
+      await kv.set(KV.sessions, session.id, session);
+
+      const result = (await sdk.trigger("mem::diagnose", { categories: ["sessions"] })) as { checks: DiagnosticCheck[] };
+      const stale = result.checks.find((c) => c.name === "abandoned-session:stale1");
+      expect(stale).toBeDefined();
+      expect(stale!.status).toBe("warn");
+      expect(stale!.fixable).toBe(true);
+    });
+
+    it("does not flag a recently-active session", async () => {
+      const session = makeSession({
+        id: "fresh1",
+        startedAt: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
+        status: "active",
+        observationCount: 50,
+      });
+      // @ts-expect-error adding field for test
+      session.lastObservationAt = new Date(Date.now() - 30 * 1000).toISOString();
+      await kv.set(KV.sessions, session.id, session);
+
+      const result = (await sdk.trigger("mem::diagnose", { categories: ["sessions"] })) as { checks: DiagnosticCheck[] };
+      expect(result.checks.find((c) => c.name.startsWith("abandoned-session:"))).toBeUndefined();
     });
 
     it("memory with stale isLatest produces fail (fixable)", async () => {
