@@ -123,6 +123,7 @@ export function registerObserveFunction(
           await kv.set(KV.sessions, payload.sessionId, {
             ...session,
             observationCount: (session.observationCount || 0) + 1,
+            lastObservationAt: payload.timestamp || new Date().toISOString(),
           });
         }
 
