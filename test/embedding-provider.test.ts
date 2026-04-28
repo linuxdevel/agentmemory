@@ -8,6 +8,7 @@ describe("createEmbeddingProvider", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    process.env["AGENTMEMORY_IGNORE_ENV_FILE"] = "true";
     delete process.env["GEMINI_API_KEY"];
     delete process.env["OPENAI_API_KEY"];
     delete process.env["VOYAGE_API_KEY"];

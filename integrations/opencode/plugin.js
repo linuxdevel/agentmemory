@@ -162,7 +162,7 @@ export async function AgentMemoryPlugin({ directory }) {
     },
 
     "experimental.chat.messages.transform": async (_input, output) => {
-      const sessionId = output?.sessionID || activeSessionId;
+      const sessionId = output?.sessionID;
       if (!sessionId) return;
 
       const session = getSession(sessionId);

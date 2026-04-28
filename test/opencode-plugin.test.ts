@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, resolve } from "node:path";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const pluginPath = pathToFileURL(
-  "/opt/agentmemory/.worktrees/opencode-systemd-integration/integrations/opencode/plugin.js",
+  resolve(__dirname, "..", "integrations", "opencode", "plugin.js"),
 ).href;
 
 type PluginHooks = Record<string, (...args: any[]) => Promise<void>>;
