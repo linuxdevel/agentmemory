@@ -2,6 +2,7 @@ import type { ISdk } from "iii-sdk";
 import type { StateKV } from "../state/kv.js";
 import { KV } from "../state/schema.js";
 import { withKeyedLock } from "../state/keyed-mutex.js";
+import { recordAudit } from "./audit.js";
 import type {
   Action,
   ActionEdge,
@@ -741,6 +742,53 @@ export function registerDiagnosticsFunction(sdk: ISdk, kv: StateKV): void {
             details.push(`Deleted expired signal ${signal.id}`);
             fixed++;
           }
+        }
+      }
+
+      if (categories.includes("sessions")) {
+        const sessions = await kv.list<Session>(KV.sessions);
+        const idleMs = getSessionIdleMs();
+
+        for (const session of sessions) {
+          if (session.status !== "active") continue;
+          const lastSeenIso = session.lastObservationAt ?? session.startedAt;
+          const lastSeenMs = new Date(lastSeenIso).getTime();
+          if (!Number.isFinite(lastSeenMs)) continue;
+          if (now - lastSeenMs <= idleMs) continue;
+
+          if (dryRun) {
+            details.push(
+              `[dry-run] Would abandon stale session ${session.id} (idle ${Math.round((now - lastSeenMs) / (60 * 60 * 1000))}h)`,
+            );
+            fixed++;
+            continue;
+          }
+
+          const fresh = await kv.get<Session>(KV.sessions, session.id);
+          if (!fresh || fresh.status !== "active") {
+            skipped++;
+            continue;
+          }
+          const refreshedLastSeen = new Date(
+            fresh.lastObservationAt ?? fresh.startedAt,
+          ).getTime();
+          if (Number.isFinite(refreshedLastSeen) && Date.now() - refreshedLastSeen <= idleMs) {
+            skipped++;
+            continue;
+          }
+
+          const endedAtIso = new Date().toISOString();
+          await kv.set(KV.sessions, fresh.id, {
+            ...fresh,
+            status: "abandoned",
+            endedAt: endedAtIso,
+          });
+          await recordAudit(kv, "session_abandon", "mem::heal", [fresh.id], {
+            reason: "idle_timeout",
+            idleHours: Math.round((Date.now() - refreshedLastSeen) / (60 * 60 * 1000)),
+          });
+          details.push(`Abandoned stale session ${fresh.id}`);
+          fixed++;
         }
       }
 

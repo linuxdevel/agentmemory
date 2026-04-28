@@ -495,7 +495,10 @@ export interface AuditEntry {
     | "skill_extract"
     | "core_add"
     | "core_remove"
-    | "auto_page";
+    | "auto_page"
+    | "session_start"
+    | "session_end"
+    | "session_abandon";
   userId?: string;
   functionId: string;
   targetIds: string[];

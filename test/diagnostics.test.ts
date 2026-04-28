@@ -523,6 +523,89 @@ describe("Diagnostics Functions", () => {
   });
 
   describe("mem::heal", () => {
+    describe("session heal", () => {
+      it("closes stale active sessions, marks them abandoned, sets endedAt", async () => {
+        const kv = mockKV();
+        const sdk = mockSdk();
+        registerDiagnosticsFunction(sdk as any, kv as any);
+
+        const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+        await kv.set(KV.sessions, "stale1", {
+          id: "stale1",
+          project: "/p",
+          cwd: "/p",
+          startedAt: threeHoursAgo,
+          lastObservationAt: threeHoursAgo,
+          status: "active",
+          observationCount: 5,
+        } satisfies Session);
+        await kv.set(KV.sessions, "fresh1", {
+          id: "fresh1",
+          project: "/p",
+          cwd: "/p",
+          startedAt: new Date().toISOString(),
+          lastObservationAt: new Date().toISOString(),
+          status: "active",
+          observationCount: 1,
+        } satisfies Session);
+
+        const result = (await sdk.trigger("mem::heal", { categories: ["sessions"] })) as any;
+        expect(result.fixed).toBeGreaterThanOrEqual(1);
+
+        const stale = await kv.get<Session>(KV.sessions, "stale1");
+        expect(stale!.status).toBe("abandoned");
+        expect(stale!.endedAt).toBeDefined();
+
+        const fresh = await kv.get<Session>(KV.sessions, "fresh1");
+        expect(fresh!.status).toBe("active");
+        expect(fresh!.endedAt).toBeUndefined();
+      });
+
+      it("dryRun does not modify but reports", async () => {
+        const kv = mockKV();
+        const sdk = mockSdk();
+        registerDiagnosticsFunction(sdk as any, kv as any);
+
+        const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+        await kv.set(KV.sessions, "s1", {
+          id: "s1",
+          project: "/p",
+          cwd: "/p",
+          startedAt: threeHoursAgo,
+          lastObservationAt: threeHoursAgo,
+          status: "active",
+          observationCount: 1,
+        } satisfies Session);
+
+        const result = (await sdk.trigger("mem::heal", { categories: ["sessions"], dryRun: true })) as any;
+        expect(result.fixed).toBe(1);
+        expect(result.details.some((d: string) => d.startsWith("[dry-run]"))).toBe(true);
+
+        const unchanged = await kv.get<Session>(KV.sessions, "s1");
+        expect(unchanged!.status).toBe("active");
+      });
+
+      it("ignores already-completed sessions", async () => {
+        const kv = mockKV();
+        const sdk = mockSdk();
+        registerDiagnosticsFunction(sdk as any, kv as any);
+
+        await kv.set(KV.sessions, "done1", {
+          id: "done1",
+          project: "/p",
+          cwd: "/p",
+          startedAt: new Date(Date.now() - 100 * 60 * 60 * 1000).toISOString(),
+          lastObservationAt: new Date(Date.now() - 100 * 60 * 60 * 1000).toISOString(),
+          endedAt: new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString(),
+          status: "completed",
+          observationCount: 10,
+        } satisfies Session);
+
+        const result = (await sdk.trigger("mem::heal", { categories: ["sessions"] })) as any;
+        expect(result.fixed).toBe(0);
+      });
+    });
+
     it("unblocks stuck blocked action", async () => {
       const dep = makeAction({ status: "done" });
       const blocked = makeAction({ status: "blocked", title: "Stuck task" });
