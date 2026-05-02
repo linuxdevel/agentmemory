@@ -334,7 +334,7 @@ export function registerMcpEndpoints(
                   content: [
                     {
                       type: "text",
-                      text: "Knowledge graph not enabled. Set GRAPH_EXTRACTION_ENABLED=true",
+                      text: "Failed to query knowledge graph.",
                     },
                   ],
                 },

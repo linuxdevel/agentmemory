@@ -244,7 +244,7 @@ export function loadSnapshotConfig(): {
 }
 
 export function isGraphExtractionEnabled(): boolean {
-  return getMergedEnv()["GRAPH_EXTRACTION_ENABLED"] === "true";
+  return true;
 }
 
 export function getGraphBatchSize(): number {

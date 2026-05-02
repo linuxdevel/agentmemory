@@ -737,7 +737,7 @@ export function registerApiTriggers(
       } catch {
         return {
           status_code: 404,
-          body: { error: "Knowledge graph not enabled" },
+          body: { error: "Failed to perform graph operation" },
         };
       }
     },
@@ -759,7 +759,7 @@ export function registerApiTriggers(
       } catch {
         return {
           status_code: 404,
-          body: { error: "Knowledge graph not enabled" },
+          body: { error: "Failed to perform graph operation" },
         };
       }
     },
@@ -790,7 +790,7 @@ export function registerApiTriggers(
       } catch {
         return {
           status_code: 404,
-          body: { error: "Knowledge graph not enabled" },
+          body: { error: "Failed to perform graph operation" },
         };
       }
     },
