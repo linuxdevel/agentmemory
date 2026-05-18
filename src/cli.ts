@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { platform } from "node:os";
 import * as p from "@clack/prompts";
 import { generateId } from "./state/schema.js";
+import { isPortOpen } from "./engine-readiness.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -63,14 +64,7 @@ function getRestPort(): number {
 }
 
 async function isEngineRunning(): Promise<boolean> {
-  try {
-    await fetch(`http://localhost:${getRestPort()}/`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return isPortOpen(getRestPort());
 }
 
 function findIiiConfig(): string {

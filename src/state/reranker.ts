@@ -12,7 +12,7 @@ async function loadPipeline(): Promise<any> {
   pipelineLoading = (async () => {
     try {
       const { pipeline: createPipeline } = await import(
-        "@xenova/transformers"
+        "@huggingface/transformers"
       );
       pipeline = await createPipeline(
         "text-classification",

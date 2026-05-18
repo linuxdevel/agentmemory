@@ -51,6 +51,8 @@ export function rewriteOpenCodeSkillFrontmatter(content, targetSkillName) {
 export function mergeOpenCodeConfig(config, input) {
   const next = { ...config };
 
+  next.$schema = "https://opencode.ai/config.json";
+
   next.plugin = appendUnique(next.plugin, input.pluginUrl);
   next.instructions = appendUnique(next.instructions, input.instructionUrl);
 

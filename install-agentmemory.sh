@@ -467,7 +467,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${NODE_BIN} --max-old-space-size=256 ${INSTALL_DIR}/dist/cli.mjs
+ExecStart=${NODE_BIN} --max-old-space-size=256 ${INSTALL_DIR}/dist/index.mjs
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -484,6 +484,12 @@ ProtectHome=false
 [Install]
 WantedBy=multi-user.target
 EOF
+
+  local expected_execstart
+  expected_execstart="ExecStart=${NODE_BIN} --max-old-space-size=256 ${INSTALL_DIR}/dist/index.mjs"
+  if ! grep -Fqx "${expected_execstart}" "${SYSTEMD_UNIT_PATH}"; then
+    error "Systemd unit verification failed for ${SYSTEMD_UNIT_PATH}; expected ${expected_execstart}"
+  fi
 
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}.service" >/dev/null

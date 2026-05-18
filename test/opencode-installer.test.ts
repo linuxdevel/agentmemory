@@ -84,6 +84,20 @@ describe("OpenCode installer helpers", () => {
     });
   });
 
+  it("normalizes the OpenCode config schema URL", () => {
+    const merged = mergeOpenCodeConfig(
+      { $schema: "https://opencode.ai/theme.json" },
+      {
+        pluginUrl: "file:///plugin.js",
+        instructionUrl: "file:///instructions.md",
+        mcpCommandNode: "/srv/custom-node/bin/node",
+        mcpCommandCli: "/opt/agentmemory/dist/cli.mjs",
+      },
+    );
+
+    expect(merged.$schema).toBe("https://opencode.ai/config.json");
+  });
+
   it("rewrites skill frontmatter to the namespaced OpenCode skill name", () => {
     const source = `---\nname: remember\ndescription: Save a memory\n---\n\nBody`;
 

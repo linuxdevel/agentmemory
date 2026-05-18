@@ -36,10 +36,10 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     let transformers: { pipeline: Pipeline };
     try {
       // @ts-ignore - optional peer dependency
-      transformers = await import("@xenova/transformers");
+      transformers = await import("@huggingface/transformers");
     } catch {
       throw new Error(
-        "Install @xenova/transformers for local embeddings: npm install @xenova/transformers",
+        "Install @huggingface/transformers for local embeddings: npm install @huggingface/transformers",
       );
     }
 
